@@ -1,10 +1,10 @@
 package api
 
 import (
+	"Mesh2Mesh/internal/store"
 	"errors"
 	"net/http"
 	"time"
-	"Mesh2Mesh/internal/store"
 )
 
 // createToken handles POST /v1/tenants/{id}/tokens. The plaintext token is in
@@ -62,5 +62,3 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		"expires_at": token.ExpiresAt,
 	})
 }
-
-

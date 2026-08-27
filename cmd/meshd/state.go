@@ -20,6 +20,7 @@ type state struct {
 	TenantName   string    `json:"tenant_name"`
 	Name         string    `json:"name"`
 	MeshIP       string    `json:"mesh_ip"`
+	UDPPort      int       `json:"udp_port,omitempty"`
 	MeshCIDR     string    `json:"mesh_cidr"`
 	API          string    `json:"api"`
 	RegisteredAt time.Time `json:"registered_at"`
@@ -65,7 +66,7 @@ func saveState(path string, st *state) error {
 	if err != nil {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
-	defer os.Remove(tmp.Name()) // no-op once the rename below succeeds
+	defer os.Remove(tmp.Name())
 
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"Mesh2Mesh/internal/api"
+	"Mesh2Mesh/internal/prober"
 	"Mesh2Mesh/internal/store"
 )
 
@@ -45,10 +46,19 @@ func run(log *slog.Logger) error {
 	}
 	defer st.Close()
 
+	// The prober needs its own UDP socket: it tests peer endpoints by sending
+	// them a datagram and waiting for the echo.
+	probe, err := prober.Open(env("PROBE_ADDR", prober.DefaultAddr), log)
+	if err != nil {
+		return err
+	}
+	defer probe.Close()
+	log.Info("endpoint prober listening", "addr", probe.LocalAddr().String())
+
 	addr := env("LISTEN_ADDR", defaultAddr)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.New(st, log).Routes(),
+		Handler:           api.New(st, log, probe).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

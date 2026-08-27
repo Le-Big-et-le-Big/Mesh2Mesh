@@ -1,11 +1,11 @@
 package api
 
 import (
+	"Mesh2Mesh/internal/store"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
-	"Mesh2Mesh/internal/store"
 )
 
 type tenantResponse struct {
@@ -83,5 +83,3 @@ func (s *Server) getTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, tenantView(tenant))
 }
-
-

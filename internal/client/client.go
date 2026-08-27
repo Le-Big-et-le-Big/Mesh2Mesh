@@ -77,6 +77,21 @@ type Registration struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// Peer is one member of a tenant's mesh, as the control plane sees it.
+type Peer struct {
+	PeerID    string `json:"peer_id"`
+	Name      string `json:"name"`
+	PublicKey string `json:"public_key"`
+	MeshIP    string `json:"mesh_ip"`
+	// Endpoint is "ip:port" on the underlay network, empty until the peer has
+	// reported one.
+	Endpoint string `json:"endpoint"`
+	// DirectReachable is whether the control plane's probe of Endpoint got an
+	// answer -- i.e. whether connectivity strategy 1 works for this peer.
+	DirectReachable bool      `json:"direct_reachable"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
 // CreateTenant posts to /v1/tenants. An empty cidr lets the server pick its
 // default.
 func (c *Client) CreateTenant(ctx context.Context, name, cidr string) (*Tenant, error) {
@@ -121,6 +136,33 @@ func (c *Client) RegisterPeer(ctx context.Context, token, name, publicKey string
 		return nil, err
 	}
 	return &out, nil
+}
+
+// UpdateEndpoint reports the UDP port this node bound. The control plane pairs
+// it with the source IP of the call, probes the result, and returns the peer
+// with the verdict in DirectReachable.
+func (c *Client) UpdateEndpoint(ctx context.Context, peerID string, udpPort int) (*Peer, error) {
+	req := struct {
+		UDPPort int `json:"udp_port"`
+	}{UDPPort: udpPort}
+
+	var out Peer
+	if err := c.do(ctx, http.MethodPost, "/v1/peers/"+peerID+"/endpoint", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListPeers returns every peer in a tenant, including the endpoints this node
+// needs in order to send to them.
+func (c *Client) ListPeers(ctx context.Context, tenantID string) ([]Peer, error) {
+	var out struct {
+		Peers []Peer `json:"peers"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/tenants/"+tenantID+"/peers", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Peers, nil
 }
 
 // do sends one request and decodes the response into out (which may be nil).
