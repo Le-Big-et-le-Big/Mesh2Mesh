@@ -9,8 +9,8 @@ import (
 	"Mesh2Mesh/internal/store"
 )
 
-// peerView renders a peer for the API, including where other peers should
-// send its traffic. endpoint is omitted entirely until the peer reports one.
+// peerView renders a peer for the API. endpoint is omitted until the peer
+// reports one.
 func peerView(p *store.Peer) map[string]any {
 	out := map[string]any{
 		"peer_id":    p.ID,
@@ -18,8 +18,8 @@ func peerView(p *store.Peer) map[string]any {
 		"public_key": p.PublicKey,
 		"mesh_ip":    p.MeshIP.String(),
 		"created_at": p.CreatedAt,
-		// direct_reachable is the result of the last probe: true means the peer
-		// accepts unsolicited UDP, so others can send to endpoint directly.
+		// True when the last probe was answered: others can send to endpoint
+		// directly.
 		"direct_reachable": p.DirectReachable,
 	}
 	if p.Endpoint.IsValid() {
@@ -29,8 +29,8 @@ func peerView(p *store.Peer) map[string]any {
 	return out
 }
 
-// registerPeer handles POST /v1/peers/register: a client redeems an enrollment
-// token and gets back the mesh address it should configure.
+// registerPeer redeems an enrollment token and returns the mesh address the
+// client should configure.
 func (s *Server) registerPeer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token     string `json:"token"`
@@ -85,7 +85,6 @@ func (s *Server) registerPeer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// listPeers handles GET /v1/tenants/{id}/peers.
 func (s *Server) listPeers(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.PathValue("id")
 	if _, err := s.store.GetTenant(r.Context(), tenantID); err != nil {
@@ -110,9 +109,8 @@ func (s *Server) listPeers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"peers": out})
 }
 
-// updateEndpoint handles POST /v1/peers/{id}/endpoint: a node reports the UDP
-// port it bound, and the control plane decides whether that endpoint is usable
-// for direct connections.
+// updateEndpoint takes the UDP port a node bound and decides whether the
+// resulting endpoint is usable for direct connections.
 func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		UDPPort int `json:"udp_port"`
@@ -164,7 +162,6 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, peerView(peer))
 }
 
-// remoteAddr parses the source address of a request.
 func remoteAddr(r *http.Request) (netip.Addr, error) {
 	ap, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {

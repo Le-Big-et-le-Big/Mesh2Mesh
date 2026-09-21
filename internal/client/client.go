@@ -16,7 +16,7 @@ import (
 // DefaultBaseURL matches the control plane's default LISTEN_ADDR.
 const DefaultBaseURL = "http://localhost:8090"
 
-// maxResponseBytes caps what we read back; every payload here is a few fields.
+// maxResponseBytes caps what we read back.
 const maxResponseBytes = 1 << 20
 
 const defaultTimeout = 15 * time.Second
@@ -87,13 +87,12 @@ type Peer struct {
 	// reported one.
 	Endpoint string `json:"endpoint"`
 	// DirectReachable is whether the control plane's probe of Endpoint got an
-	// answer -- i.e. whether connectivity strategy 1 works for this peer.
+	// answer.
 	DirectReachable bool      `json:"direct_reachable"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-// CreateTenant posts to /v1/tenants. An empty cidr lets the server pick its
-// default.
+// CreateTenant creates a tenant; an empty cidr lets the server pick its default.
 func (c *Client) CreateTenant(ctx context.Context, name, cidr string) (*Tenant, error) {
 	req := struct {
 		Name string `json:"name"`
@@ -107,8 +106,8 @@ func (c *Client) CreateTenant(ctx context.Context, name, cidr string) (*Tenant, 
 	return &out, nil
 }
 
-// CreateToken mints an enrollment token for a tenant. The plaintext secret it
-// returns is not recoverable afterwards.
+// CreateToken mints an enrollment token. The secret it returns is not
+// recoverable afterwards.
 func (c *Client) CreateToken(ctx context.Context, tenantID string, ttl time.Duration, maxUses int) (*Token, error) {
 	req := struct {
 		TTLSeconds int `json:"ttl_seconds"`
@@ -122,8 +121,7 @@ func (c *Client) CreateToken(ctx context.Context, tenantID string, ttl time.Dura
 	return &out, nil
 }
 
-// RegisterPeer redeems an enrollment token and returns the mesh address the
-// node should configure.
+// RegisterPeer redeems an enrollment token and returns the mesh address to configure
 func (c *Client) RegisterPeer(ctx context.Context, token, name, publicKey string) (*Registration, error) {
 	req := struct {
 		Token     string `json:"token"`
@@ -138,9 +136,7 @@ func (c *Client) RegisterPeer(ctx context.Context, token, name, publicKey string
 	return &out, nil
 }
 
-// UpdateEndpoint reports the UDP port this node bound. The control plane pairs
-// it with the source IP of the call, probes the result, and returns the peer
-// with the verdict in DirectReachable.
+// UpdateEndpoint reports the UDP port this node bound.
 func (c *Client) UpdateEndpoint(ctx context.Context, peerID string, udpPort int) (*Peer, error) {
 	req := struct {
 		UDPPort int `json:"udp_port"`
@@ -153,8 +149,7 @@ func (c *Client) UpdateEndpoint(ctx context.Context, peerID string, udpPort int)
 	return &out, nil
 }
 
-// ListPeers returns every peer in a tenant, including the endpoints this node
-// needs in order to send to them.
+// ListPeers returns every peer in a tenant, with the endpoints to send to them.
 func (c *Client) ListPeers(ctx context.Context, tenantID string) ([]Peer, error) {
 	var out struct {
 		Peers []Peer `json:"peers"`
@@ -209,7 +204,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 }
 
 // apiMessage pulls the `error` field out of a failure body, falling back to the
-// status line when the body is not the shape we expect.
+// status line.
 func apiMessage(payload []byte, status string) string {
 	var body struct {
 		Error string `json:"error"`

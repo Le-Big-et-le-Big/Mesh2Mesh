@@ -1,4 +1,4 @@
-// serves the Mesh2Mesh control-plane API: tenants
+// Command controlplane serves the Mesh2Mesh control-plane API.
 package main
 
 import (
@@ -46,8 +46,7 @@ func run(log *slog.Logger) error {
 	}
 	defer st.Close()
 
-	// The prober needs its own UDP socket: it tests peer endpoints by sending
-	// them a datagram and waiting for the echo.
+	// The prober needs its own UDP socket to probe peer endpoints.
 	probe, err := prober.Open(env("PROBE_ADDR", prober.DefaultAddr), log)
 	if err != nil {
 		return err
@@ -83,7 +82,6 @@ func run(log *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// env reads an environment variable, falling back to def when it is unset.
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

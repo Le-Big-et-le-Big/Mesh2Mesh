@@ -13,7 +13,6 @@ const tokenPrefix = "m2m_"
 // 2 reserved hosts = 1 relay IP for the server + 1 network address IP
 const reservedHosts = 2
 
-// newSecret mints a 256-bit enrollment token.
 func newSecret() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -54,7 +53,6 @@ func nextFreeAddr(prefix netip.Prefix, used map[netip.Addr]bool) (netip.Addr, er
 	return netip.Addr{}, fmt.Errorf("%w: %s", ErrPoolExhausted, prefix)
 }
 
-// lastAddr returns the highest address inside prefix.
 func lastAddr(prefix netip.Prefix) netip.Addr {
 	bytes := prefix.Masked().Addr().AsSlice()
 	for i := prefix.Bits(); i < len(bytes)*8; i++ {

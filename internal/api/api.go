@@ -19,17 +19,15 @@ const (
 type Server struct {
 	store *store.Store
 	log   *slog.Logger
-	// prober tests reported endpoints for unsolicited inbound reachability. A
-	// nil prober disables the test and reports every endpoint as unreachable.
+	// A nil prober disables the reachability test: every endpoint reports
+	// unreachable.
 	prober *prober.Prober
 }
 
-// New builds a Server.
 func New(st *store.Store, log *slog.Logger, p *prober.Prober) *Server {
 	return &Server{store: st, log: log, prober: p}
 }
 
-// Routes returns the API handler.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)

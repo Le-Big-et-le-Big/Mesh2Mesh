@@ -27,8 +27,9 @@ func newPeerTable() *peerTable {
 	return &peerTable{peers: make(map[netip.Addr]peerEntry)}
 }
 
-// refresh replaces the table with what the control plane just reported,
-// Only peers the control plane could probe successfully get a routable endpoint, endpoints we learned from received traffic survive the refresh.
+// refresh replaces the table with what the control plane just reported. Only
+// peers it could probe get a routable endpoint and endpoints we learned from
+// received traffic survive the refresh.
 func (t *peerTable) refresh(peers []client.Peer, selfID string) (routable int) {
 	next := make(map[netip.Addr]peerEntry, len(peers))
 
@@ -49,7 +50,7 @@ func (t *peerTable) refresh(peers []client.Peer, selfID string) (routable int) {
 		case ok && prev.learned:
 			entry.endpoint, entry.learned = prev.endpoint, true
 		case p.DirectReachable:
-			// The peer answered the control plane's probe, so its port is open to unsolicited traffic including ours.
+			// It answered the control plane's probe, so its port is open to us too.
 			if ep, err := netip.ParseAddrPort(p.Endpoint); err == nil {
 				entry.endpoint = ep
 			}
@@ -64,7 +65,6 @@ func (t *peerTable) refresh(peers []client.Peer, selfID string) (routable int) {
 	return routable
 }
 
-// lookup returns where to send a packet addressed to meshIP.
 func (t *peerTable) lookup(meshIP netip.Addr) (netip.AddrPort, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -73,8 +73,8 @@ func (t *peerTable) lookup(meshIP netip.Addr) (netip.AddrPort, bool) {
 	return entry.endpoint, ok && entry.endpoint.IsValid()
 }
 
-// learn records where a peer's traffic actually arrives from, which is where replies should go.
-// It returns false when meshIP is not a peer of ours.
+// learn records where a peer's traffic arrives from, which is where replies
+// should go. It returns false when meshIP is not a peer of ours.
 func (t *peerTable) learn(meshIP netip.Addr, from netip.AddrPort) bool {
 	t.mu.RLock()
 	entry, ok := t.peers[meshIP]
@@ -96,11 +96,11 @@ func (t *peerTable) learn(meshIP netip.Addr, from netip.AddrPort) bool {
 	return true
 }
 
-// forwardOutbound is the egress half of the tunnel: read IP packets the kernel
-// routed into mesh0, and send each one to the peer that owns its destination.
+// read IP packets out of mesh0 and send each one on
 func (d *daemon) forwardOutbound() error {
 	packet := make([]byte, wire.MaxFrameLen)
 	frame := make([]byte, 0, wire.MaxFrameLen)
+	sealed := make([]byte, 0, wire.MaxFrameLen)
 
 	for {
 		n, err := d.tun.Read(packet)
@@ -112,6 +112,15 @@ func (d *daemon) forwardOutbound() error {
 		if !ok {
 			continue // not IPv4, the mesh is v4-only for now
 		}
+
+		if d.session != nil {
+			frame, sealed, err = d.forwardToServer(frame, sealed, packet[:n])
+			if err != nil {
+				d.log.Warn("could not send to the mesh server", "dst", dst.String(), "err", err)
+			}
+			continue
+		}
+
 		endpoint, ok := d.peers.lookup(dst)
 		if !ok {
 			d.log.Debug("dropping packet, no reachable peer", "dst", dst.String())
@@ -125,8 +134,22 @@ func (d *daemon) forwardOutbound() error {
 	}
 }
 
-// forwardInbound is the ingress half: read frames off the tunnel socket, answer
-// probes, and hand tunnelled packets to the kernel through mesh0.
+// Seals one packet and sends it to the mesh server.
+// It returns the frame and seal buffers so the caller can keep reusing them.
+func (d *daemon) forwardToServer(frame, sealed, packet []byte) ([]byte, []byte, error) {
+	sealed, err := d.session.Seal(sealed, packet)
+	if err != nil {
+		return frame, sealed, fmt.Errorf("seal packet: %w", err)
+	}
+
+	frame = wire.Encode(frame, wire.TypeDataEncrypted, sealed)
+	if _, err := d.conn.WriteToUDP(frame, d.server); err != nil {
+		return frame, sealed, fmt.Errorf("write to %s: %w", d.server, err)
+	}
+	return frame, sealed, nil
+}
+
+// read frames off the tunnel socket, answer probes, and hand tunnelled packets to the kernel through mesh0.
 func (d *daemon) forwardInbound() error {
 	buf := make([]byte, wire.MaxFrameLen)
 	reply := make([]byte, 0, wire.HeaderLen+wire.NonceLen)
@@ -160,6 +183,11 @@ func (d *daemon) forwardInbound() error {
 		case wire.TypeProbeReply:
 			// Nothing sends probes from a node yet; holepunching will.
 			d.log.Debug("unsolicited probe reply", "src", from.String())
+
+		case wire.TypeDataEncrypted:
+			// Nothing should send us one: opening it needs the sender's public
+			// key, which the peer table does not carry.
+			d.log.Debug("dropping encrypted frame, inbound decryption is not wired up", "src", from.String())
 		}
 	}
 }

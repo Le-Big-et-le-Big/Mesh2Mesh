@@ -21,7 +21,7 @@ const (
 	ifNameSize = 16
 )
 
-// ifreq is the linux interface request struct as TUNSETIFF reads it: a
+// ifreq is the interface request struct TUNSETIFF reads.
 type ifreq struct {
 	name  [ifNameSize]byte
 	flags uint16

@@ -16,8 +16,6 @@ import (
 	"syscall"
 )
 
-// unitFile runs `run`, the data plane: it configures the interface and then
-// stays up carrying traffic, so the unit is a normal long-lived service.
 const unitFile = `[Unit]
 Description=Meshing VPN service
 After=network-online.target
@@ -34,11 +32,8 @@ WantedBy=multi-user.target
 `
 
 const (
-	meshIface     = "mesh0"
-	serverRelayIp = "192.168.1.12"
-
-	// MTU set on mesh0.
-	meshMTU = 1400
+	meshIface = "mesh0"
+	meshMTU   = 1400
 
 	// fallbackAddr is what `up` configures when this node has not registered.
 	fallbackAddr = "10.203.0.1/16"
@@ -53,9 +48,10 @@ Usage:
   meshd tenant create --name <name> [--cidr <cidr>]
   meshd tenant token  --tenant <tenant-id> [--ttl <duration>] [--max-uses <n>]
   meshd register      --token <m2m_...> [--name <name>] [--public-key <key>] [--force]
+  meshd keygen
   meshd install
   meshd up
-  meshd run           [--port <udp-port>] [-v]
+  meshd run           [--port <udp-port>] [--server <host:port> --server-key <key>] [-v]
 
 Common flags:
   --api    control-plane base URL   (env MESH2MESH_API, default http://localhost:8090)
@@ -87,6 +83,8 @@ func run(ctx context.Context, args []string) error {
 		return tenantCmd(ctx, args[1:])
 	case "register":
 		return registerCmd(ctx, args[1:])
+	case "keygen":
+		return keygenCmd(args[1:])
 	case "install":
 		return installCmd(args[1:])
 	case "up":
@@ -105,7 +103,6 @@ func run(ctx context.Context, args []string) error {
 	}
 }
 
-// installCmd writes the systemd unit and starts the service.
 func installCmd(args []string) error {
 	fset := flag.NewFlagSet("install", flag.ContinueOnError)
 	if err := fset.Parse(args); err != nil {
@@ -156,8 +153,7 @@ func upCmd(args []string) error {
 	return nil
 }
 
-// execCmd runs a command and folds its output into the returned error, so a
-// failure says what the tool actually complained about.
+// execCmd runs a command, folding its output into the returned error.
 func execCmd(name string, args ...string) error {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {

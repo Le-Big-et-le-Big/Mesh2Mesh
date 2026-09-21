@@ -13,11 +13,11 @@ import (
 // defaultCIDR is used when a tenant is created without one.
 const defaultCIDR = "10.203.0.0/16"
 
-// maxBodyBytes caps request bodies; every payload here is a handful of fields.
+// maxBodyBytes caps request bodies.
 const maxBodyBytes = 64 << 10
 
-// parseCIDR validates a tenant CIDR: it must be a private IPv4 range with room
-// for at least a couple of peers.
+// parseCIDR validates a tenant CIDR: a private IPv4 range with room for a
+// couple of peers.
 func parseCIDR(raw string) (netip.Prefix, error) {
 	if strings.TrimSpace(raw) == "" {
 		raw = defaultCIDR
@@ -53,7 +53,6 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, s *Server) bool {
 	return true
 }
 
-// writeJSON sends a JSON response with the given status.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

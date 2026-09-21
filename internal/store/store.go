@@ -88,7 +88,6 @@ func (s *Store) CreateTenant(ctx context.Context, name string, cidr netip.Prefix
 	return &t, nil
 }
 
-// GetTenant looks a tenant up by id.
 func (s *Store) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	t := Tenant{ID: id}
 	err := s.pool.QueryRow(ctx,
@@ -120,8 +119,8 @@ func (s *Store) ListTenants(ctx context.Context) ([]Tenant, error) {
 	return out, wrap(rows.Err())
 }
 
-// CreateToken issues an enrollment token for a tenant. The plaintext secret is
-// returned once, here, and is not recoverable afterwards.
+// CreateToken issues an enrollment token. The plaintext secret is returned once,
+// here, and is not recoverable afterwards.
 func (s *Store) CreateToken(ctx context.Context, tenantID string, ttl time.Duration, maxUses int) (*Token, error) {
 	secret, err := newSecret()
 	if err != nil {
@@ -175,7 +174,6 @@ func scanPeer(r row) (Peer, error) {
 	return p, nil
 }
 
-// GetPeer looks a peer up by id.
 func (s *Store) GetPeer(ctx context.Context, id string) (*Peer, error) {
 	p, err := scanPeer(s.pool.QueryRow(ctx,
 		`SELECT `+peerColumns+` FROM peers WHERE id = $1`, id))
@@ -285,7 +283,6 @@ func (s *Store) RegisterPeer(ctx context.Context, secret, name, publicKey string
 	return &peer, &tenant, nil
 }
 
-// usedAddrs reads the addresses already handed out in a tenant.
 func usedAddrs(ctx context.Context, tx pgx.Tx, tenantID string) (map[netip.Addr]bool, error) {
 	rows, err := tx.Query(ctx, `SELECT mesh_ip FROM peers WHERE tenant_id = $1`, tenantID)
 	if err != nil {
