@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    container: golang@sha256:68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233e374188a31b2a1bce
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt'd:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Check go.mod is tidy
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    container: golang@sha256:68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233e374188a31b2a1bce
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    container: golang@sha256:68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233e374188a31b2a1bce
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          go build -trimpath -o dist/controlplane ./cmd/controlplane
+          go build -trimpath -o dist/meshd ./cmd/meshd
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: mesh2mesh-binaries
+          path: dist/
+          retention-days: 7
+
+  hadolint:
+    name: Hadolint (${{ matrix.component }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        component: [controlplane, meshd]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Lint Containerfile.${{ matrix.component }}
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: Containerfile.${{ matrix.component }}
+          config: .hadolint.yaml
+          failure-threshold: warning
+          no-color: true
+
+  images:
+    name: Image (${{ matrix.component }})
+    needs: [format, lint, build, hadolint]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: [controlplane, meshd]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Ensure buildah
+        run: |
+          if ! command -v buildah >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y buildah
+          fi
+          buildah --version
+
+      - name: Build image
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-${COMPONENT}"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          buildah bud \
+            --file "Containerfile.${COMPONENT}" \
+            --tag "${image}:${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
+
+      - name: Export image to a tarball for scanning
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: buildah push "${IMAGE}:${GITHUB_SHA}" "docker-archive:/tmp/${COMPONENT}.tar:${IMAGE}:${GITHUB_SHA}"
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: image
+          input: /tmp/${{ matrix.component }}.tar
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Log in to ghcr.io
+        if: github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | buildah login -u "${{ github.actor }}" --password-stdin ghcr.io
+
+      - name: Push image
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          tags="${GITHUB_SHA} sha-${GITHUB_SHA:0:7}"
+
+          # Moving tag per release : main -> :latest, beta -> :beta
+          case "$GITHUB_REF" in
+            refs/heads/main) tags="$tags latest" ;;
+            refs/heads/beta) tags="$tags beta" ;;
+          esac
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tags="$tags ${GITHUB_REF_NAME}"
+          fi
+          for tag in $tags; do
+            echo "pushing ${IMAGE}:${tag}"
+            buildah tag "${IMAGE}:${GITHUB_SHA}" "${IMAGE}:${tag}"
+            buildah push "${IMAGE}:${tag}"
+          done

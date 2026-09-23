@@ -1,0 +1,21 @@
+# golang:1.26.4-trixie
+FROM golang@sha256:68b7145ec43d1820b9a56704554b53d1520aa2a15cb5233e374188a31b2a1bce AS build
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+      -o /out/controlplane ./cmd/controlplane
+
+# alpine:3.22
+FROM alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+
+RUN apk add --no-cache ca-certificates
+COPY --from=build /out/controlplane /usr/local/bin/controlplane
+
+# LISTEN_ADDR :8090 (API), PROBE_ADDR :51821/udp
+EXPOSE 8090
+EXPOSE 51821/udp
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/controlplane"]
