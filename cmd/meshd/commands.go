@@ -27,7 +27,6 @@ func registerCommonFlags(fs *flag.FlagSet) commonFlags {
 	}
 }
 
-// tenantCmd dispatches `meshd tenant <create|token>`.
 func tenantCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("tenant: expected a subcommand (create, token)")
@@ -42,7 +41,6 @@ func tenantCmd(ctx context.Context, args []string) error {
 	}
 }
 
-// tenantCreateCmd implements `meshd tenant create`.
 func tenantCreateCmd(ctx context.Context, args []string) error {
 	fset := flag.NewFlagSet("tenant create", flag.ContinueOnError)
 	name := fset.String("name", "", "tenant name (required)")
@@ -66,7 +64,6 @@ func tenantCreateCmd(ctx context.Context, args []string) error {
 	return nil
 }
 
-// tenantTokenCmd implements `meshd tenant token`.
 func tenantTokenCmd(ctx context.Context, args []string) error {
 	fset := flag.NewFlagSet("tenant token", flag.ContinueOnError)
 	tenantID := fset.String("tenant", "", "tenant id (required)")
@@ -95,9 +92,8 @@ func tenantTokenCmd(ctx context.Context, args []string) error {
 	return nil
 }
 
-// registerCmd implements `meshd register`: redeem an enrollment token, then
-// persist the identity and address the control plane assigned so `meshd up`
-// can configure the interface from it.
+// registerCmd redeems an enrollment token and persists the identity and address
+// the control plane assigned, so `meshd up` can configure the interface from it.
 func registerCmd(ctx context.Context, args []string) error {
 	fset := flag.NewFlagSet("register", flag.ContinueOnError)
 	token := fset.String("token", "", "enrollment token (required)")
@@ -123,8 +119,7 @@ func registerCmd(ctx context.Context, args []string) error {
 		peerName = host
 	}
 
-	// Start from whatever this node already has so re-registering keeps the
-	// same keypair.
+	// Start from what this node already has, so re-registering keeps its keypair.
 	st, err := loadState(*common.state)
 	switch {
 	case err == nil && !*force:
@@ -177,7 +172,25 @@ func registerCmd(ctx context.Context, args []string) error {
 	return nil
 }
 
-// env reads an environment variable, falling back to def when it is unset.
+// keygenCmd prints an X25519 keypair without touching the node state, for the
+// mesh server: it is sealed towards, but never registers as a peer.
+func keygenCmd(args []string) error {
+	fset := flag.NewFlagSet("keygen", flag.ContinueOnError)
+	if err := fset.Parse(args); err != nil {
+		return err
+	}
+
+	private, public, err := newKeyPair()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("private key: %s\npublic key:  %s\n", private, public)
+	fmt.Printf("\nKeep the private key on the server. Point nodes at it with:\n"+
+		"  sudo meshd run --server <server-host>:%d --server-key %s\n", defaultUDPPort, public)
+	return nil
+}
+
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

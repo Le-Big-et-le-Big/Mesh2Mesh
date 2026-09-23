@@ -1,14 +1,14 @@
 package api
 
 import (
+	"Mesh2Mesh/internal/store"
 	"errors"
 	"net/http"
 	"time"
-	"Mesh2Mesh/internal/store"
 )
 
-// createToken handles POST /v1/tenants/{id}/tokens. The plaintext token is in
-// the response and nowhere else — it cannot be read back later.
+// createToken issues an enrollment token. The plaintext is in the response and
+// nowhere else: it cannot be read back later.
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TTLSeconds int `json:"ttl_seconds"`
@@ -62,5 +62,3 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		"expires_at": token.ExpiresAt,
 	})
 }
-
-

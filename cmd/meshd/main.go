@@ -16,25 +16,24 @@ import (
 	"syscall"
 )
 
-// unitFile runs `up`, so the service configures the interface rather than
-// re-installing itself. It is oneshot because `up` sets the interface and
-// exits; RemainAfterExit keeps the unit active afterwards.
 const unitFile = `[Unit]
 Description=Meshing VPN service
 After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/bin/Mesh2Mesh up
+Type=simple
+ExecStart=/usr/bin/Mesh2Mesh run
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 `
 
 const (
-	meshIface     = "mesh0"
-	serverRelayIp = "192.168.1.12"
+	meshIface = "mesh0"
+	meshMTU   = 1400
 
 	// fallbackAddr is what `up` configures when this node has not registered.
 	fallbackAddr = "10.203.0.1/16"
@@ -49,8 +48,10 @@ Usage:
   meshd tenant create --name <name> [--cidr <cidr>]
   meshd tenant token  --tenant <tenant-id> [--ttl <duration>] [--max-uses <n>]
   meshd register      --token <m2m_...> [--name <name>] [--public-key <key>] [--force]
+  meshd keygen
   meshd install
   meshd up
+  meshd run           [--port <udp-port>] [--server <host:port> --server-key <key>] [-v]
 
 Common flags:
   --api    control-plane base URL   (env MESH2MESH_API, default http://localhost:8090)
@@ -82,10 +83,14 @@ func run(ctx context.Context, args []string) error {
 		return tenantCmd(ctx, args[1:])
 	case "register":
 		return registerCmd(ctx, args[1:])
+	case "keygen":
+		return keygenCmd(args[1:])
 	case "install":
 		return installCmd(args[1:])
 	case "up":
 		return upCmd(args[1:])
+	case "run":
+		return runCmd(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
@@ -98,7 +103,6 @@ func run(ctx context.Context, args []string) error {
 	}
 }
 
-// installCmd writes the systemd unit and starts the service.
 func installCmd(args []string) error {
 	fset := flag.NewFlagSet("install", flag.ContinueOnError)
 	if err := fset.Parse(args); err != nil {
@@ -108,10 +112,10 @@ func installCmd(args []string) error {
 	if err := os.WriteFile(unitPath, []byte(unitFile), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", unitPath, err)
 	}
-	if err := runCmd("systemctl", "daemon-reload"); err != nil {
+	if err := execCmd("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	if err := runCmd("systemctl", "enable", "--now", "mesh2mesh.service"); err != nil {
+	if err := execCmd("systemctl", "enable", "--now", "mesh2mesh.service"); err != nil {
 		return err
 	}
 
@@ -119,8 +123,6 @@ func installCmd(args []string) error {
 	return nil
 }
 
-// upCmd configures the mesh interface with this node's registered address,
-// falling back to fallbackAddr when the node has not registered yet.
 func upCmd(args []string) error {
 	fset := flag.NewFlagSet("up", flag.ContinueOnError)
 	statePath := fset.String("state", env("MESH2MESH_STATE", defaultStatePath), "node state file")
@@ -151,24 +153,8 @@ func upCmd(args []string) error {
 	return nil
 }
 
-// setupInterface creates mesh0 if it does not exist and gives it addr.
-func setupInterface(addr string) error {
-	if err := exec.Command("ip", "link", "show", meshIface).Run(); err != nil {
-		if err := runCmd("ip", "tuntap", "add", "dev", meshIface, "mode", "tun"); err != nil {
-			return err
-		}
-	}
-
-	// "replace" so re-running does not fail with EEXIST.
-	if err := runCmd("ip", "addr", "replace", addr, "dev", meshIface); err != nil {
-		return err
-	}
-	return runCmd("ip", "link", "set", "dev", meshIface, "up")
-}
-
-// runCmd runs a command and folds its output into the returned error, so a
-// failure says what the tool actually complained about.
-func runCmd(name string, args ...string) error {
+// execCmd runs a command, folding its output into the returned error.
+func execCmd(name string, args ...string) error {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
 		if msg := strings.TrimSpace(string(out)); msg != "" {

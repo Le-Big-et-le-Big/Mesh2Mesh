@@ -5,11 +5,16 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"Mesh2Mesh/internal/wgcrypt"
 )
 
 type state struct {
@@ -20,9 +25,51 @@ type state struct {
 	TenantName   string    `json:"tenant_name"`
 	Name         string    `json:"name"`
 	MeshIP       string    `json:"mesh_ip"`
+	UDPPort      int       `json:"udp_port,omitempty"`
 	MeshCIDR     string    `json:"mesh_cidr"`
 	API          string    `json:"api"`
 	RegisteredAt time.Time `json:"registered_at"`
+
+	// ServerEndpoint (host:port) is the mesh server every outbound packet is redirected to
+	ServerEndpoint string `json:"server_endpoint,omitempty"`
+	ServerKey      string `json:"server_key,omitempty"`
+}
+
+func (s *state) applyServerFlags(endpoint, key string) (changed bool) {
+	if endpoint = strings.TrimSpace(endpoint); endpoint != "" && endpoint != s.ServerEndpoint {
+		s.ServerEndpoint, changed = endpoint, true
+	}
+	if key = strings.TrimSpace(key); key != "" && key != s.ServerKey {
+		s.ServerKey, changed = key, true
+	}
+	return changed
+}
+
+// serverSession builds the sealing session and resolved address for the mesh
+// server, or nils when none is configured -- the cleartext peer-to-peer path.
+func (s *state) serverSession() (*wgcrypt.Session, *net.UDPAddr, error) {
+	switch {
+	case s.ServerEndpoint == "" && s.ServerKey == "":
+		return nil, nil, nil
+	case s.ServerEndpoint == "":
+		return nil, nil, errors.New("a server key is set but no server endpoint: pass --server host:port")
+	case s.ServerKey == "":
+		return nil, nil, errors.New("a server endpoint is set but no server key: pass --server-key <base64 X25519 public key>")
+	case s.PrivateKey == "":
+		// Registering with --public-key stores a key we hold no private half for.
+		return nil, nil, errors.New("this node has no private key, so it cannot derive a session key: re-register without --public-key")
+	}
+
+	addr, err := net.ResolveUDPAddr("udp", s.ServerEndpoint)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve server endpoint %q: %w", s.ServerEndpoint, err)
+	}
+
+	session, err := wgcrypt.NewSession(s.PrivateKey, s.ServerKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return session, addr, nil
 }
 
 func (s *state) meshPrefix() (netip.Prefix, error) {
@@ -65,7 +112,7 @@ func saveState(path string, st *state) error {
 	if err != nil {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
-	defer os.Remove(tmp.Name()) // no-op once the rename below succeeds
+	defer os.Remove(tmp.Name())
 
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()

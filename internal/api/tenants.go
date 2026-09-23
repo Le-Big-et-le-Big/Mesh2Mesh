@@ -1,11 +1,11 @@
 package api
 
 import (
+	"Mesh2Mesh/internal/store"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
-	"Mesh2Mesh/internal/store"
 )
 
 type tenantResponse struct {
@@ -19,7 +19,6 @@ func tenantView(t *store.Tenant) tenantResponse {
 	return tenantResponse{ID: t.ID, Name: t.Name, CIDR: t.CIDR.String(), CreatedAt: t.CreatedAt}
 }
 
-// createTenant handles POST /v1/tenants.
 func (s *Server) createTenant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
@@ -55,7 +54,6 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, tenantView(tenant))
 }
 
-// listTenants handles GET /v1/tenants.
 func (s *Server) listTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := s.store.ListTenants(r.Context())
 	if err != nil {
@@ -70,7 +68,6 @@ func (s *Server) listTenants(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tenants": out})
 }
 
-// getTenant handles GET /v1/tenants/{id}.
 func (s *Server) getTenant(w http.ResponseWriter, r *http.Request) {
 	tenant, err := s.store.GetTenant(r.Context(), r.PathValue("id"))
 	switch {
@@ -83,5 +80,3 @@ func (s *Server) getTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, tenantView(tenant))
 }
-
-

@@ -59,6 +59,10 @@ type Peer struct {
 	PublicKey string
 	MeshIP    netip.Addr
 	CreatedAt time.Time
+
+	Endpoint          netip.AddrPort
+	DirectReachable   bool
+	EndpointUpdatedAt time.Time
 }
 
 type Token struct {
@@ -84,7 +88,6 @@ func (s *Store) CreateTenant(ctx context.Context, name string, cidr netip.Prefix
 	return &t, nil
 }
 
-// GetTenant looks a tenant up by id.
 func (s *Store) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	t := Tenant{ID: id}
 	err := s.pool.QueryRow(ctx,
@@ -116,8 +119,8 @@ func (s *Store) ListTenants(ctx context.Context) ([]Tenant, error) {
 	return out, wrap(rows.Err())
 }
 
-// CreateToken issues an enrollment token for a tenant. The plaintext secret is
-// returned once, here, and is not recoverable afterwards.
+// CreateToken issues an enrollment token. The plaintext secret is returned once,
+// here, and is not recoverable afterwards.
 func (s *Store) CreateToken(ctx context.Context, tenantID string, ttl time.Duration, maxUses int) (*Token, error) {
 	secret, err := newSecret()
 	if err != nil {
@@ -142,11 +145,65 @@ func (s *Store) CreateToken(ctx context.Context, tenantID string, ttl time.Durat
 	return &tok, nil
 }
 
+// peerColumns is the projection scanPeer expects.
+const peerColumns = `id, tenant_id, name, public_key, mesh_ip, created_at,
+                     public_ip, udp_port, direct_reachable, endpoint_updated_at`
+
+// row is the part of pgx.Row and pgx.Rows that scanPeer needs.
+type row interface{ Scan(dest ...any) error }
+
+// scanPeer reads one peerColumns row, folding the nullable endpoint columns
+// into Peer's zero values.
+func scanPeer(r row) (Peer, error) {
+	var (
+		p       Peer
+		ip      *netip.Addr
+		port    *int32
+		updated *time.Time
+	)
+	if err := r.Scan(&p.ID, &p.TenantID, &p.Name, &p.PublicKey, &p.MeshIP, &p.CreatedAt,
+		&ip, &port, &p.DirectReachable, &updated); err != nil {
+		return Peer{}, wrap(err)
+	}
+	if ip != nil && port != nil {
+		p.Endpoint = netip.AddrPortFrom(*ip, uint16(*port))
+	}
+	if updated != nil {
+		p.EndpointUpdatedAt = *updated
+	}
+	return p, nil
+}
+
+func (s *Store) GetPeer(ctx context.Context, id string) (*Peer, error) {
+	p, err := scanPeer(s.pool.QueryRow(ctx,
+		`SELECT `+peerColumns+` FROM peers WHERE id = $1`, id))
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// SetPeerEndpoint records where a peer says it can be reached, and the verdict
+// of probing that endpoint.
+func (s *Store) SetPeerEndpoint(ctx context.Context, peerID string, endpoint netip.AddrPort, reachable bool) (*Peer, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE peers
+		    SET public_ip = $2, udp_port = $3, direct_reachable = $4, endpoint_updated_at = now()
+		  WHERE id = $1`,
+		peerID, endpoint.Addr(), int32(endpoint.Port()), reachable)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetPeer(ctx, peerID)
+}
+
 // ListPeers returns the peers registered in a tenant, oldest first.
 func (s *Store) ListPeers(ctx context.Context, tenantID string) ([]Peer, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, name, public_key, mesh_ip, created_at
-		 FROM peers WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
+		`SELECT `+peerColumns+` FROM peers WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
 	if err != nil {
 		return nil, wrap(err)
 	}
@@ -154,9 +211,9 @@ func (s *Store) ListPeers(ctx context.Context, tenantID string) ([]Peer, error) 
 
 	var out []Peer
 	for rows.Next() {
-		var p Peer
-		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.PublicKey, &p.MeshIP, &p.CreatedAt); err != nil {
-			return nil, wrap(err)
+		p, err := scanPeer(rows)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, p)
 	}
@@ -226,7 +283,6 @@ func (s *Store) RegisterPeer(ctx context.Context, secret, name, publicKey string
 	return &peer, &tenant, nil
 }
 
-// usedAddrs reads the addresses already handed out in a tenant.
 func usedAddrs(ctx context.Context, tx pgx.Tx, tenantID string) (map[netip.Addr]bool, error) {
 	rows, err := tx.Query(ctx, `SELECT mesh_ip FROM peers WHERE tenant_id = $1`, tenantID)
 	if err != nil {
