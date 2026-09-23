@@ -141,10 +141,9 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpoint := netip.AddrPortFrom(publicIP, uint16(req.UDPPort))
 
 	reachable := false
-	switch {
-	case s.prober == nil:
+	if s.prober == nil {
 		s.log.Warn("no prober configured, reporting endpoint as unreachable", "peer_id", peerID)
-	default:
+	} else {
 		reachable, err = s.prober.Reachable(r.Context(), endpoint)
 		if err != nil {
 			s.log.Error("could not probe endpoint", "err", err, "peer_id", peerID, "endpoint", endpoint.String())

@@ -112,14 +112,14 @@ func saveState(path string, st *state) error {
 	if err != nil {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("chmod %s: %w", tmp.Name(), err)
 	}
 	if _, err := tmp.Write(buf); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("write %s: %w", tmp.Name(), err)
 	}
 	if err := tmp.Close(); err != nil {

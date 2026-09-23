@@ -225,7 +225,7 @@ func (s *Store) RegisterPeer(ctx context.Context, secret, name, publicKey string
 	if err != nil {
 		return nil, nil, wrap(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var tokenID, tenantID string
 	err = tx.QueryRow(ctx,
