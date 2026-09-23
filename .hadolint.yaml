@@ -1,7 +1,3 @@
-# hadolint configuration -- https://github.com/hadolint/hadolint
 ignored:
-  # DL3018 "pin versions in apk add": Alpine's package index only carries the
-  # latest build of each package, so a pinned version stops resolving as soon
-  # as Alpine ships a patch. Reproducibility comes from the digest-pinned
-  # base images instead.
+  # pin versions in apk add
   - DL3018
