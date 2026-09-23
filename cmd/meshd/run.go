@@ -86,7 +86,7 @@ func runCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	udpPort = conn.LocalAddr().(*net.UDPAddr).Port
 
 	if st.UDPPort != udpPort {
@@ -102,7 +102,7 @@ func runCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer tun.Close()
+	defer func() { _ = tun.Close() }()
 
 	d := &daemon{
 		log:     log,

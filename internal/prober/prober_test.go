@@ -24,7 +24,7 @@ func openTestProber(t *testing.T) *Prober {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(func() { p.Close() })
+	t.Cleanup(func() { _ = p.Close() })
 	p.budget = 300 * time.Millisecond
 	return p
 }
@@ -42,7 +42,7 @@ func listenUDP(t *testing.T) *net.UDPConn {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }
 
@@ -59,7 +59,7 @@ func TestReachableWhenTheEndpointEchoes(t *testing.T) {
 			if err != nil || typ != wire.TypeProbe {
 				continue
 			}
-			node.WriteToUDP(wire.Encode(nil, wire.TypeProbeReply, payload), src)
+			_, _ = node.WriteToUDP(wire.Encode(nil, wire.TypeProbeReply, payload), src)
 		}
 	}()
 
@@ -102,7 +102,7 @@ func TestReplyFromAnotherAddressDoesNotCount(t *testing.T) {
 			}
 			// Right nonce, wrong socket: this says nothing about whether the
 			// endpoint we probed accepts traffic.
-			other.WriteToUDP(wire.Encode(nil, wire.TypeProbeReply, payload), src)
+			_, _ = other.WriteToUDP(wire.Encode(nil, wire.TypeProbeReply, payload), src)
 		}
 	}()
 

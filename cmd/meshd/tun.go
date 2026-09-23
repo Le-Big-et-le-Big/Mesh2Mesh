@@ -42,7 +42,7 @@ func openTUN(name string) (*os.File, error) {
 	copy(req.name[:], name)
 
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), tunSetIff, uintptr(unsafe.Pointer(&req))); errno != 0 {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("attach to %s: %w", name, errno)
 	}
 	return f, nil

@@ -51,7 +51,7 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	defer probe.Close()
+	defer func() { _ = probe.Close() }()
 	log.Info("endpoint prober listening", "addr", probe.LocalAddr().String())
 
 	addr := env("LISTEN_ADDR", defaultAddr)
