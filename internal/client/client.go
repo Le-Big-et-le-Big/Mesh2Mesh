@@ -33,10 +33,33 @@ func New(baseURL string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	if !hasScheme(baseURL) {
+		baseURL = "http://" + baseURL
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http:    &http.Client{Timeout: defaultTimeout},
 	}
+}
+
+// hasScheme reports whether s starts with a URL scheme
+func hasScheme(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z':
+			continue
+		case '0' <= c && c <= '9', c == '+', c == '-', c == '.':
+			if i == 0 {
+				return false
+			}
+			continue
+		case c == ':':
+			return i > 0 && strings.HasPrefix(s[i:], "://")
+		}
+		return false
+	}
+	return false
 }
 
 // Error is a non-2xx response. Message is the API's `error` field when the

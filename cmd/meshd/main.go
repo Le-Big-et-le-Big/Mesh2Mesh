@@ -1,6 +1,5 @@
-// Command meshd is the Mesh2Mesh node CLI: it talks to the control plane to
-// create tenants, mint enrollment tokens and register this node, then
-// configures the local mesh interface from what it was given.
+// Command meshd is the Mesh2Mesh node CLI: it enrolls this node into a tenant
+// through the control plane, then carries the mesh traffic over mesh0.
 package main
 
 import (
@@ -8,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -16,47 +14,28 @@ import (
 	"syscall"
 )
 
-const unitFile = `[Unit]
-Description=Meshing VPN service
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/Mesh2Mesh run
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-`
-
 const (
 	meshIface = "mesh0"
 	meshMTU   = 1400
 
-	// fallbackAddr is what `up` configures when this node has not registered.
-	fallbackAddr = "10.203.0.1/16"
-
 	defaultStatePath = "/etc/mesh2mesh/peer.json"
-	unitPath         = "/etc/systemd/system/mesh2mesh.service"
 )
 
 const usage = `meshd — Mesh2Mesh node CLI
 
 Usage:
-  meshd tenant create --name <name> [--cidr <cidr>]
-  meshd tenant token  --tenant <tenant-id> [--ttl <duration>] [--max-uses <n>]
-  meshd register      --token <m2m_...> [--name <name>] [--public-key <key>] [--force]
-  meshd keygen
-  meshd install
-  meshd up
-  meshd run           [--port <udp-port>] [--server <host:port> --server-key <key>] [-v]
+  meshd setup <tenant-name> [--cidr <cidr>]   create a tenant and join this node to it
+  meshd join  <tenant-id>                     join (or move this node to) an existing tenant
+  meshd run   [--server <host:port> --server-key <key>] [--port <udp-port>] [-v]
+                                              bring mesh0 up and carry traffic, as a
+                                              systemd service when there is one
+  meshd stop                                  stop meshd and remove mesh0
 
-Common flags:
-  --api    control-plane base URL   (env MESH2MESH_API, default http://localhost:8090)
-  --state  node state file          (env MESH2MESH_STATE, default /etc/mesh2mesh/peer.json)
+Flags for setup and join:
+  --api    control-plane URL   (env MESH2MESH_API; default: the one this node last used)
+  --name   this node's name    (default: the hostname)
 
+setup, join and run take --state (env MESH2MESH_STATE, default /etc/mesh2mesh/peer.json).
 Run "meshd <command> --help" for a command's own flags.
 `
 
@@ -79,78 +58,24 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	switch args[0] {
-	case "tenant":
-		return tenantCmd(ctx, args[1:])
-	case "register":
-		return registerCmd(ctx, args[1:])
-	case "keygen":
-		return keygenCmd(args[1:])
-	case "install":
-		return installCmd(args[1:])
-	case "up":
-		return upCmd(args[1:])
+	case "setup":
+		return setupCmd(ctx, args[1:])
+	case "join":
+		return joinCmd(ctx, args[1:])
 	case "run":
 		return runCmd(ctx, args[1:])
+	case "stop":
+		return stopCmd(args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		if strings.HasPrefix(args[0], "-") {
-			return fmt.Errorf("flags come after the command, e.g. `meshd tenant create %s ...`", args[0])
+			return fmt.Errorf("flags come after the command, e.g. `meshd run %s ...`", args[0])
 		}
 		return fmt.Errorf("unknown command %q", args[0])
 	}
-}
-
-func installCmd(args []string) error {
-	fset := flag.NewFlagSet("install", flag.ContinueOnError)
-	if err := fset.Parse(args); err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(unitPath, []byte(unitFile), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", unitPath, err)
-	}
-	if err := execCmd("systemctl", "daemon-reload"); err != nil {
-		return err
-	}
-	if err := execCmd("systemctl", "enable", "--now", "mesh2mesh.service"); err != nil {
-		return err
-	}
-
-	fmt.Printf("installed and started %s\n", unitPath)
-	return nil
-}
-
-func upCmd(args []string) error {
-	fset := flag.NewFlagSet("up", flag.ContinueOnError)
-	statePath := fset.String("state", env("MESH2MESH_STATE", defaultStatePath), "node state file")
-	if err := fset.Parse(args); err != nil {
-		return err
-	}
-
-	addr := fallbackAddr
-	switch st, err := loadState(*statePath); {
-	case err == nil:
-		prefix, err := st.meshPrefix()
-		if err != nil {
-			return err
-		}
-		addr = prefix.String()
-	case errors.Is(err, fs.ErrNotExist):
-		fmt.Fprintf(os.Stderr, "meshd: no registration at %s, falling back to %s — run `meshd register` first\n",
-			*statePath, fallbackAddr)
-	default:
-		return err
-	}
-
-	if err := setupInterface(addr); err != nil {
-		return err
-	}
-
-	fmt.Printf("%s is up with %s\n", meshIface, addr)
-	return nil
 }
 
 // execCmd runs a command, folding its output into the returned error.
