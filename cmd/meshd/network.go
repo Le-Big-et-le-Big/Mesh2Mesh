@@ -15,7 +15,8 @@ func bindUDP(port int) (*net.UDPConn, error) {
 	return conn, nil
 }
 
-// setupInterface creates mesh0 if it does not exist and gives it addr.
+// setupInterface creates mesh0 if it does not exist and gives it addr, and only
+// addr: an address left from a previous tenant would still answer locally.
 func setupInterface(addr string) error {
 	if err := exec.Command("ip", "link", "show", meshIface).Run(); err != nil {
 		if err := execCmd("ip", "tuntap", "add", "dev", meshIface, "mode", "tun"); err != nil {
@@ -23,7 +24,10 @@ func setupInterface(addr string) error {
 		}
 	}
 
-	if err := execCmd("ip", "addr", "replace", addr, "dev", meshIface); err != nil {
+	if err := execCmd("ip", "-4", "addr", "flush", "dev", meshIface); err != nil {
+		return err
+	}
+	if err := execCmd("ip", "addr", "add", addr, "dev", meshIface); err != nil {
 		return err
 	}
 

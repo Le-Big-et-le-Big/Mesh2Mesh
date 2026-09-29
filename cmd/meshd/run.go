@@ -45,20 +45,15 @@ func runCmd(ctx context.Context, args []string) error {
 	server := fset.String("server", "", "mesh server `host:port`: encrypt every outbound packet and redirect it there")
 	serverKey := fset.String("server-key", "", "the mesh server's base64 X25519 public key (required with --server)")
 	verbose := fset.Bool("v", false, "log dropped packets and other per-packet detail")
-	common := registerCommonFlags(fset)
+	foreground := fset.Bool("foreground", false, "run in this terminal instead of as the systemd service")
+	statePath := fset.String("state", env("MESH2MESH_STATE", defaultStatePath), "node state file")
 	if err := fset.Parse(args); err != nil {
 		return err
 	}
 
-	level := slog.LevelInfo
-	if *verbose {
-		level = slog.LevelDebug
-	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-
-	st, err := loadState(*common.state)
+	st, err := loadState(*statePath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("run: no registration at %s — run `meshd register --token ...` first", *common.state)
+		return fmt.Errorf("run: this node is in no tenant yet (%s is missing) — run `meshd setup <tenant-name>` or `meshd join <tenant-id>` first", *statePath)
 	} else if err != nil {
 		return err
 	}
@@ -71,10 +66,33 @@ func runCmd(ctx context.Context, args []string) error {
 	// Flags win over the state file, and are persisted below so a restart under
 	// systemd keeps redirecting without them.
 	dirty := st.applyServerFlags(*server, *serverKey)
+	if *port != 0 && *port != st.UDPPort {
+		st.UDPPort, dirty = *port, true
+	}
 	session, serverAddr, err := st.serverSession()
 	if err != nil {
 		return err
 	}
+
+	asService := !*foreground && hasSystemd()
+	if err := checkNotRunning(asService); err != nil {
+		return err
+	}
+
+	if asService {
+		if dirty {
+			if err := saveState(*statePath, st); err != nil {
+				return err
+			}
+		}
+		return startService(*statePath, *verbose, st, prefix)
+	}
+
+	level := slog.LevelInfo
+	if *verbose {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	if err := setupInterface(prefix.String()); err != nil {
 		return err
@@ -93,7 +111,7 @@ func runCmd(ctx context.Context, args []string) error {
 		st.UDPPort, dirty = udpPort, true
 	}
 	if dirty {
-		if err := saveState(*common.state, st); err != nil {
+		if err := saveState(*statePath, st); err != nil {
 			return err
 		}
 	}
@@ -103,6 +121,12 @@ func runCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	defer func() { _ = tun.Close() }()
+
+	// Lets `meshd stop` find us when we were not started by systemd.
+	if err := writePIDFile(); err != nil {
+		return err
+	}
+	defer removePIDFile()
 
 	d := &daemon{
 		log:     log,
