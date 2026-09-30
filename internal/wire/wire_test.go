@@ -9,12 +9,12 @@ import (
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	payload := []byte{0x45, 0x00, 0x00, 0x1c, 0xde, 0xad}
 
-	typ, got, err := Decode(Encode(nil, TypeData, payload))
+	typ, got, err := Decode(Encode(nil, TypeProbe, payload))
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if typ != TypeData {
-		t.Errorf("type = %d, want %d", typ, TypeData)
+	if typ != TypeProbe {
+		t.Errorf("type = %d, want %d", typ, TypeProbe)
 	}
 	if !bytes.Equal(got, payload) {
 		t.Errorf("payload = % x, want % x", got, payload)
@@ -24,7 +24,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 func TestEncodeReusesBuffer(t *testing.T) {
 	// The forwarding path encodes into one buffer per loop, so a second call
 	// must overwrite the first rather than append to it.
-	buf := Encode(nil, TypeData, bytes.Repeat([]byte{1}, 100))
+	buf := Encode(nil, TypeProbe, bytes.Repeat([]byte{1}, 100))
 	buf = Encode(buf, TypeProbe, []byte{2, 2})
 
 	if want := HeaderLen + 2; len(buf) != want {
@@ -43,8 +43,8 @@ func TestDecodeRejectsBadFrames(t *testing.T) {
 		want  error
 	}{
 		{"empty", nil, ErrShortFrame},
-		{"truncated header", []byte{Version, TypeData}, ErrShortFrame},
-		{"future version", []byte{Version + 1, TypeData, 0, 0}, ErrVersion},
+		{"truncated header", []byte{Version, TypeProbe}, ErrShortFrame},
+		{"future version", []byte{Version + 1, TypeProbe, 0, 0}, ErrVersion},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

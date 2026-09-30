@@ -1,5 +1,5 @@
 // Command meshd is the Mesh2Mesh node CLI: it enrolls this node into a tenant
-// through the control plane, then carries the mesh traffic over mesh0.
+// through the control plane, then carries the mesh traffic over mesh0, encrypted with WireGuard.
 package main
 
 import (
@@ -16,7 +16,8 @@ import (
 
 const (
 	meshIface = "mesh0"
-	meshMTU   = 1400
+	// meshMTU leaves room for WireGuard's 80 bytes of overhead on a 1500 underlay.
+	meshMTU = 1420
 
 	defaultStatePath = "/etc/mesh2mesh/peer.json"
 )
@@ -26,9 +27,9 @@ const usage = `meshd — Mesh2Mesh node CLI
 Usage:
   meshd setup <tenant-name> [--cidr <cidr>]   create a tenant and join this node to it
   meshd join  <tenant-id>                     join (or move this node to) an existing tenant
-  meshd run   [--server <host:port> --server-key <key>] [--port <udp-port>] [-v]
-                                              bring mesh0 up and carry traffic, as a
-                                              systemd service when there is one
+  meshd run   [--port <udp-port>] [-v]          bring mesh0 up and carry traffic over
+                                              WireGuard, as a systemd service when
+                                              there is one
   meshd stop                                  stop meshd and remove mesh0
 
 Flags for setup and join:
