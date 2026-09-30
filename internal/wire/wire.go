@@ -9,12 +9,9 @@ import (
 // Version is the protocol version carried in byte 0
 const Version = 0
 
-// Frame types.
 const (
-	TypeData          uint8 = 1
-	TypeProbe         uint8 = 2
-	TypeProbeReply    uint8 = 3
-	TypeDataEncrypted uint8 = 4
+	TypeProbe      uint8 = 1
+	TypeProbeReply uint8 = 2
 )
 
 // Version, type, and 2 reserved

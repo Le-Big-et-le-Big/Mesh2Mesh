@@ -1,6 +1,7 @@
 # Mesh2Mesh
 
-VPN mesh service: a control plane hands out mesh addresses, nodes tunnel IP over UDP.
+VPN mesh service: a control plane hands out mesh addresses, nodes tunnel IP
+between each other over WireGuard (wireguard-go, embedded in `meshd`).
 
 ## Quickstart
 
@@ -30,7 +31,6 @@ takes up to 15s to reach each other. Schema changes need a clean volume
 | `meshd install`       | Writes and starts the systemd unit (runs `meshd run`)      |
 | `meshd up`            | Configures `mesh0` from the state file, then exits         |
 | `meshd run`           | Configures `mesh0` and carries traffic (`--port`, `-v`)    |
-| `meshd keygen`        | Prints an X25519 keypair for a redirect server             |
 
 All of them take `--api` (`MESH2MESH_API`, default `http://localhost:8090`) and
 `--state` (`MESH2MESH_STATE`, default `/etc/mesh2mesh/peer.json`).
@@ -62,11 +62,10 @@ body.
 | Path                | What it is                                              |
 | ------------------- | ------------------------------------------------------- |
 | `cmd/controlplane`  | HTTP API server                                          |
-| `cmd/meshd`         | Node CLI and data plane                                  |
+| `cmd/meshd`         | Node CLI and WireGuard data plane                        |
 | `internal/api`      | HTTP handlers                                            |
 | `internal/store`    | Postgres persistence and address allocation              |
 | `internal/client`   | Typed API client the CLI uses                            |
-| `internal/wire`     | UDP framing                                              |
-| `internal/wgcrypt`  | Packet seal (X25519 + ChaCha20-Poly1305)                 |
+| `internal/wire`     | Probe framing, shares the node socket with WireGuard     |
 | `internal/prober`   | Control-plane reachability probe                         |
 | `migrations`        | SQL schema                                               |

@@ -144,8 +144,7 @@ func (f enrollFlags) enroll(ctx context.Context, c *client.Client, api string, p
 		st.PrivateKey, st.PublicKey = private, public
 	}
 	if prev != nil {
-		// A redirect server is a property of the node, not of the tenant.
-		st.ServerEndpoint, st.ServerKey, st.UDPPort = prev.ServerEndpoint, prev.ServerKey, prev.UDPPort
+		st.UDPPort = prev.UDPPort
 	}
 
 	peerName := strings.TrimSpace(*f.name)

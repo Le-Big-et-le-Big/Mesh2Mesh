@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"net"
 	"os"
 	"time"
 
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun"
+
 	"Mesh2Mesh/internal/client"
-	"Mesh2Mesh/internal/wgcrypt"
 )
 
 const (
@@ -27,14 +28,9 @@ type daemon struct {
 	state *state
 	port  int
 
-	tun   *os.File
-	conn  *net.UDPConn
-	peers *peerTable
-
-	// Set together, or not at all: when they are, every outbound packet is sealed
-	// and redirected to server instead of going to the peer in its header.
-	session *wgcrypt.Session
-	server  *net.UDPAddr
+	// wg encrypts everything on mesh0 end to end and wgPeers is what syncPeers last gave it.
+	wg      *device.Device
+	wgPeers map[string]wgPeer
 
 	reported bool
 }
@@ -42,9 +38,7 @@ type daemon struct {
 func runCmd(ctx context.Context, args []string) error {
 	fset := flag.NewFlagSet("run", flag.ContinueOnError)
 	port := fset.Int("port", 0, "UDP tunnel port (default: the port in the state file, else 51820)")
-	server := fset.String("server", "", "mesh server `host:port`: encrypt every outbound packet and redirect it there")
-	serverKey := fset.String("server-key", "", "the mesh server's base64 X25519 public key (required with --server)")
-	verbose := fset.Bool("v", false, "log dropped packets and other per-packet detail")
+	verbose := fset.Bool("v", false, "log WireGuard handshakes, dropped frames and other per-packet detail")
 	foreground := fset.Bool("foreground", false, "run in this terminal instead of as the systemd service")
 	statePath := fset.String("state", env("MESH2MESH_STATE", defaultStatePath), "node state file")
 	if err := fset.Parse(args); err != nil {
@@ -62,16 +56,19 @@ func runCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if st.PrivateKey == "" {
+		return errors.New("run: this node has no private key, so it cannot speak WireGuard — run `meshd join " + st.TenantID + "` again")
+	}
+	privateKey, err := hexKey(st.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("run: state has an invalid private_key: %w", err)
+	}
 
-	// Flags win over the state file, and are persisted below so a restart under
-	// systemd keeps redirecting without them.
-	dirty := st.applyServerFlags(*server, *serverKey)
+	// The flag wins over the state file, and is persisted below so a restart
+	// under systemd keeps the port without it.
+	dirty := false
 	if *port != 0 && *port != st.UDPPort {
 		st.UDPPort, dirty = *port, true
-	}
-	session, serverAddr, err := st.serverSession()
-	if err != nil {
-		return err
 	}
 
 	asService := !*foreground && hasSystemd()
@@ -94,18 +91,27 @@ func runCmd(ctx context.Context, args []string) error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
+	tunDev, err := tun.CreateTUN(meshIface, meshMTU)
+	if err != nil {
+		return fmt.Errorf("create %s: %w (is the tun module loaded, and are we root?)", meshIface, err)
+	}
+	// The device owns tunDev from here, and closes it with the bind.
+	bind := &meshBind{log: log}
+	wg := device.NewDevice(tunDev, bind, wgLogger(log))
+	defer wg.Close()
+
 	if err := setupInterface(prefix.String()); err != nil {
 		return err
 	}
 
-	// Bind before opening the TUN device: if the port is taken, say so first.
 	udpPort := firstSet(*port, st.UDPPort, defaultUDPPort)
-	conn, err := bindUDP(udpPort)
-	if err != nil {
-		return err
+	if err := wg.IpcSet(fmt.Sprintf("private_key=%s\nlisten_port=%d\n", privateKey, udpPort)); err != nil {
+		return fmt.Errorf("configure wireguard: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
-	udpPort = conn.LocalAddr().(*net.UDPAddr).Port
+	if err := wg.Up(); err != nil {
+		return fmt.Errorf("bring wireguard up on udp port %d: %w", udpPort, err)
+	}
+	udpPort = bind.port()
 
 	if st.UDPPort != udpPort {
 		st.UDPPort, dirty = udpPort, true
@@ -115,12 +121,6 @@ func runCmd(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-
-	tun, err := openTUN(meshIface)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tun.Close() }()
 
 	// Lets `meshd stop` find us when we were not started by systemd.
 	if err := writePIDFile(); err != nil {
@@ -133,36 +133,21 @@ func runCmd(ctx context.Context, args []string) error {
 		api:     client.New(st.API),
 		state:   st,
 		port:    udpPort,
-		tun:     tun,
-		conn:    conn,
-		peers:   newPeerTable(),
-		session: session,
-		server:  serverAddr,
+		wg:      wg,
+		wgPeers: make(map[string]wgPeer),
 	}
 
-	log.Info("mesh is up",
+	log.Info("mesh is up, traffic between peers is encrypted with WireGuard",
 		"iface", meshIface, "addr", prefix.String(), "udp_port", udpPort,
-		"peer_id", st.PeerID, "tenant", st.TenantName)
-
-	if d.session != nil {
-		log.Info("outbound packets are encrypted and redirected to the mesh server",
-			"server", d.server.String(), "cipher", "ChaCha20-Poly1305", "key_agreement", "X25519 static-static")
-	} else {
-		log.Warn("outbound packets are sent to peers in cleartext",
-			"hint", "pass --server host:port --server-key <base64> to encrypt and redirect them")
-	}
-
-	errc := make(chan error, 2)
-	go func() { errc <- d.forwardOutbound() }()
-	go func() { errc <- d.forwardInbound() }()
+		"peer_id", st.PeerID, "tenant", st.TenantName, "public_key", st.PublicKey)
 
 	d.reportEndpoint(ctx)
 	d.refreshPeers(ctx)
 	go d.maintain(ctx)
 
 	select {
-	case err := <-errc:
-		return err
+	case <-wg.Wait():
+		return errors.New("the wireguard device closed unexpectedly")
 	case <-ctx.Done():
 		log.Info("shutting down", "iface", meshIface)
 		return nil
@@ -217,8 +202,12 @@ func (d *daemon) refreshPeers(ctx context.Context) {
 		return
 	}
 
-	routable := d.peers.refresh(peers, d.state.PeerID)
-	d.log.Debug("peer table refreshed", "peers", len(peers)-1, "routable", routable)
+	routable, err := d.syncPeers(peers)
+	if err != nil {
+		d.log.Error("could not apply the peer list", "err", err)
+		return
+	}
+	d.log.Debug("peers refreshed", "peers", len(d.wgPeers), "with_endpoint", routable)
 }
 
 func firstSet(values ...int) int {
