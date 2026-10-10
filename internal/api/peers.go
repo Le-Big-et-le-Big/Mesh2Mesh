@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -25,6 +26,9 @@ func peerView(p *store.Peer) map[string]any {
 	if p.Endpoint.IsValid() {
 		out["endpoint"] = p.Endpoint.String()
 		out["endpoint_updated_at"] = p.EndpointUpdatedAt
+	}
+	if p.NATEndpoint.IsValid() {
+		out["nat_endpoint"] = p.NATEndpoint.String()
 	}
 	return out
 }
@@ -158,6 +162,51 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Info("peer endpoint updated",
 		"peer_id", peer.ID, "endpoint", endpoint.String(), "direct_reachable", reachable)
+	out := peerView(peer)
+	if s.prober != nil {
+		out["probe_port"] = s.prober.LocalAddr().(*net.UDPAddr).Port
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// updateNATEndpoint records the NAT mapping a node learned from the prober.
+func (s *Server) updateNATEndpoint(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Endpoint string `json:"endpoint"`
+	}
+	if !decode(w, r, &req, s) {
+		return
+	}
+	endpoint, err := netip.ParseAddrPort(strings.TrimSpace(req.Endpoint))
+	if err != nil || endpoint.Port() == 0 {
+		s.fail(w, r, http.StatusBadRequest, "endpoint must be ip:port", err)
+		return
+	}
+	endpoint = netip.AddrPortFrom(endpoint.Addr().Unmap(), endpoint.Port())
+
+	publicIP, err := remoteAddr(r)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, "could not read the request source address", err)
+		return
+	}
+	// A node may only point its peers at itself.
+	if endpoint.Addr() != publicIP {
+		s.fail(w, r, http.StatusBadRequest, "endpoint address is not the request source "+publicIP.String(), nil)
+		return
+	}
+
+	peerID := r.PathValue("id")
+	peer, err := s.store.SetPeerNATEndpoint(r.Context(), peerID, endpoint)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		s.fail(w, r, http.StatusNotFound, "no such peer", err)
+		return
+	case err != nil:
+		s.fail(w, r, http.StatusInternalServerError, "could not save nat endpoint", err)
+		return
+	}
+
+	s.log.Info("peer nat endpoint updated", "peer_id", peer.ID, "nat_endpoint", endpoint.String())
 	writeJSON(w, http.StatusOK, peerView(peer))
 }
 

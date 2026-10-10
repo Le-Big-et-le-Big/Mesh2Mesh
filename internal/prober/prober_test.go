@@ -1,6 +1,7 @@
 package prober
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -132,5 +133,44 @@ func TestReachableHonoursContextCancellation(t *testing.T) {
 	}
 	if reachable {
 		t.Error("a cancelled probe reported the endpoint reachable")
+	}
+}
+
+func TestBindingRequestReturnsTheSourceAddress(t *testing.T) {
+	p := openTestProber(t)
+	node := listenUDP(t)
+	proberAddr := p.LocalAddr().(*net.UDPAddr)
+	proberAP := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(proberAddr.Port))
+
+	nonce := bytes.Repeat([]byte{9}, wire.NonceLen)
+	short := wire.Encode(nil, wire.TypeBindingRequest, nonce)
+	padded := wire.Encode(nil, wire.TypeBindingRequest, append(nonce, make([]byte, wire.AddrPortLen)...))
+	for _, frame := range [][]byte{short, padded} {
+		if _, err := node.WriteToUDPAddrPort(frame, proberAP); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_ = node.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, wire.MaxFrameLen)
+	n, err := node.Read(buf)
+	if err != nil {
+		t.Fatalf("no binding response: %v", err)
+	}
+	typ, payload, err := wire.Decode(buf[:n])
+	if err != nil || typ != wire.TypeBindingResponse || len(payload) != wire.BindingLen {
+		t.Fatalf("got type %d, %d bytes, %v; want a binding response", typ, len(payload), err)
+	}
+	if !bytes.Equal(payload[:wire.NonceLen], nonce) {
+		t.Errorf("nonce = % x, want % x", payload[:wire.NonceLen], nonce)
+	}
+	if got := wire.ParseAddrPort(payload[wire.NonceLen:]); got != localAddrPort(t, node) {
+		t.Errorf("observed = %s, want %s", got, localAddrPort(t, node))
+	}
+
+	// The short request must have been dropped, not answered.
+	_ = node.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	if _, err := node.Read(buf); err == nil {
+		t.Error("a request shorter than its answer was answered")
 	}
 }

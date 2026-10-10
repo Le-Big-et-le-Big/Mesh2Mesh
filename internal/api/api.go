@@ -38,5 +38,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/tenants/{id}/peers", s.listPeers)
 	mux.HandleFunc("POST /v1/peers/register", s.registerPeer)
 	mux.HandleFunc("POST /v1/peers/{id}/endpoint", s.updateEndpoint)
+	mux.HandleFunc("POST /v1/peers/{id}/nat-endpoint", s.updateNATEndpoint)
 	return mux
 }

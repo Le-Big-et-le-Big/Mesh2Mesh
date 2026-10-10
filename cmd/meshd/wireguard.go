@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -21,6 +23,11 @@ import (
 // keepaliveSeconds keeps NAT mappings open between peers that have nothing to say.
 const keepaliveSeconds = 25
 
+const (
+	bindingBudget        = 2 * time.Second
+	bindingRetryInterval = 400 * time.Millisecond
+)
+
 // meshBind is the UDP socket wireguard-go sends and receives on. The control
 // plane's probes arrive on it too: a WireGuard message starts with its type
 // (1 to 4), a wire frame with wire.Version (0), so the first byte tells them
@@ -30,6 +37,13 @@ type meshBind struct {
 
 	mu   sync.Mutex
 	conn *net.UDPConn
+	// bindings are binding requests waiting on the prober's answer.
+	bindings map[wire.Nonce]binding
+}
+
+type binding struct {
+	server netip.AddrPort
+	mapped chan netip.AddrPort
 }
 
 var _ conn.Bind = (*meshBind)(nil)
@@ -102,6 +116,50 @@ func (b *meshBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 	return nil
 }
 
+// discoverMapping asks the prober which address this socket is seen from.
+func (b *meshBind) discoverMapping(ctx context.Context, server netip.AddrPort) (netip.AddrPort, error) {
+	nonce, err := wire.NewNonce()
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	mapped := make(chan netip.AddrPort, 1)
+
+	b.mu.Lock()
+	c := b.conn
+	if c == nil {
+		b.mu.Unlock()
+		return netip.AddrPort{}, net.ErrClosed
+	}
+	if b.bindings == nil {
+		b.bindings = make(map[wire.Nonce]binding)
+	}
+	b.bindings[nonce] = binding{server: server, mapped: mapped}
+	b.mu.Unlock()
+
+	defer func() {
+		b.mu.Lock()
+		delete(b.bindings, nonce)
+		b.mu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(ctx, bindingBudget)
+	defer cancel()
+
+	frame := wire.Encode(nil, wire.TypeBindingRequest, append(nonce[:], make([]byte, wire.AddrPortLen)...))
+	for {
+		if _, err := c.WriteToUDPAddrPort(frame, server); err != nil {
+			return netip.AddrPort{}, fmt.Errorf("send binding request to %s: %w", server, err)
+		}
+		select {
+		case ap := <-mapped:
+			return ap, nil
+		case <-time.After(bindingRetryInterval):
+		case <-ctx.Done():
+			return netip.AddrPort{}, fmt.Errorf("no binding response from %s", server)
+		}
+	}
+}
+
 // receive returns WireGuard datagrams one at a time and answers probes in
 // passing. wireguard-go calls it from a single goroutine, so reply is not shared.
 func (b *meshBind) receive(c *net.UDPConn) conn.ReceiveFunc {
@@ -136,8 +194,10 @@ func (b *meshBind) answerProbe(c *net.UDPConn, reply, frame []byte, from netip.A
 	case err != nil:
 		b.log.Debug("dropping malformed frame", "src", from.String(), "err", err)
 		return reply
+	case typ == wire.TypeBindingResponse:
+		b.deliverBinding(payload, from)
+		return reply
 	case typ == wire.TypeProbeReply:
-		// Nothing sends probes from a node yet; holepunching will.
 		b.log.Debug("unsolicited probe reply", "src", from.String())
 		return reply
 	case typ != wire.TypeProbe || len(payload) < wire.NonceLen:
@@ -150,6 +210,27 @@ func (b *meshBind) answerProbe(c *net.UDPConn, reply, frame []byte, from netip.A
 		b.log.Warn("could not answer probe", "src", from.String(), "err", err)
 	}
 	return reply
+}
+
+// deliverBinding hands a binding response to the request waiting on its nonce.
+func (b *meshBind) deliverBinding(payload []byte, from netip.AddrPort) {
+	if len(payload) < wire.BindingLen {
+		return
+	}
+	var nonce wire.Nonce
+	copy(nonce[:], payload)
+
+	b.mu.Lock()
+	w, ok := b.bindings[nonce]
+	ok = ok && w.server == from
+	if ok {
+		delete(b.bindings, nonce) // so the channel gets exactly one value
+	}
+	b.mu.Unlock()
+
+	if ok {
+		w.mapped <- wire.ParseAddrPort(payload[wire.NonceLen:])
+	}
 }
 
 // wgPeer is what we last configured in WireGuard for one peer.
@@ -179,9 +260,15 @@ func (d *daemon) syncPeers(peers []client.Peer) (routable int, err error) {
 		}
 
 		want := wgPeer{meshIP: meshIP}
-		if p.DirectReachable {
+		switch {
+		case p.DirectReachable:
 			// It answered the control plane's probe, so its port is open to us too.
 			if ep, err := netip.ParseAddrPort(p.Endpoint); err == nil {
+				want.endpoint = ep
+			}
+		case p.NATEndpoint != "":
+			// Hole punching: both sides send, WireGuard's handshake retries open the NATs.
+			if ep, err := netip.ParseAddrPort(p.NATEndpoint); err == nil {
 				want.endpoint = ep
 			}
 		}

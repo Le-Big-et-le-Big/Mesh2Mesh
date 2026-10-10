@@ -63,6 +63,8 @@ type Peer struct {
 	Endpoint          netip.AddrPort
 	DirectReachable   bool
 	EndpointUpdatedAt time.Time
+	// NATEndpoint is where to hole punch to when Endpoint is not DirectReachable.
+	NATEndpoint netip.AddrPort
 }
 
 type Token struct {
@@ -147,7 +149,8 @@ func (s *Store) CreateToken(ctx context.Context, tenantID string, ttl time.Durat
 
 // peerColumns is the projection scanPeer expects.
 const peerColumns = `id, tenant_id, name, public_key, mesh_ip, created_at,
-                     public_ip, udp_port, direct_reachable, endpoint_updated_at`
+                     public_ip, udp_port, direct_reachable, endpoint_updated_at,
+                     nat_ip, nat_port`
 
 // row is the part of pgx.Row and pgx.Rows that scanPeer needs.
 type row interface{ Scan(dest ...any) error }
@@ -160,9 +163,12 @@ func scanPeer(r row) (Peer, error) {
 		ip      *netip.Addr
 		port    *int32
 		updated *time.Time
+		natIP   *netip.Addr
+		natPort *int32
 	)
 	if err := r.Scan(&p.ID, &p.TenantID, &p.Name, &p.PublicKey, &p.MeshIP, &p.CreatedAt,
-		&ip, &port, &p.DirectReachable, &updated); err != nil {
+		&ip, &port, &p.DirectReachable, &updated,
+		&natIP, &natPort); err != nil {
 		return Peer{}, wrap(err)
 	}
 	if ip != nil && port != nil {
@@ -170,6 +176,9 @@ func scanPeer(r row) (Peer, error) {
 	}
 	if updated != nil {
 		p.EndpointUpdatedAt = *updated
+	}
+	if natIP != nil && natPort != nil {
+		p.NATEndpoint = netip.AddrPortFrom(*natIP, uint16(*natPort))
 	}
 	return p, nil
 }
@@ -191,6 +200,20 @@ func (s *Store) SetPeerEndpoint(ctx context.Context, peerID string, endpoint net
 		    SET public_ip = $2, udp_port = $3, direct_reachable = $4, endpoint_updated_at = now()
 		  WHERE id = $1`,
 		peerID, endpoint.Addr(), int32(endpoint.Port()), reachable)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetPeer(ctx, peerID)
+}
+
+// SetPeerNATEndpoint records the NAT mapping a peer discovered.
+func (s *Store) SetPeerNATEndpoint(ctx context.Context, peerID string, endpoint netip.AddrPort) (*Peer, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE peers SET nat_ip = $2, nat_port = $3 WHERE id = $1`,
+		peerID, endpoint.Addr(), int32(endpoint.Port()))
 	if err != nil {
 		return nil, wrap(err)
 	}

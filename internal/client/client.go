@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -111,8 +113,16 @@ type Peer struct {
 	Endpoint string `json:"endpoint"`
 	// DirectReachable is whether the control plane's probe of Endpoint got an
 	// answer.
-	DirectReachable bool      `json:"direct_reachable"`
-	CreatedAt       time.Time `json:"created_at"`
+	DirectReachable bool `json:"direct_reachable"`
+	// NATEndpoint is where to hole punch to when the peer is not DirectReachable.
+	NATEndpoint string    `json:"nat_endpoint"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type EndpointReport struct {
+	Peer
+	// ProbePort is the control plane's UDP port that answers binding requests.
+	ProbePort int `json:"probe_port"`
 }
 
 // CreateTenant creates a tenant; an empty cidr lets the server pick its default.
@@ -160,16 +170,38 @@ func (c *Client) RegisterPeer(ctx context.Context, token, name, publicKey string
 }
 
 // UpdateEndpoint reports the UDP port this node bound.
-func (c *Client) UpdateEndpoint(ctx context.Context, peerID string, udpPort int) (*Peer, error) {
+func (c *Client) UpdateEndpoint(ctx context.Context, peerID string, udpPort int) (*EndpointReport, error) {
 	req := struct {
 		UDPPort int `json:"udp_port"`
 	}{UDPPort: udpPort}
 
-	var out Peer
+	var out EndpointReport
 	if err := c.do(ctx, http.MethodPost, "/v1/peers/"+peerID+"/endpoint", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// UpdateNATEndpoint reports the NAT mapping the prober saw for this node.
+func (c *Client) UpdateNATEndpoint(ctx context.Context, peerID string, endpoint netip.AddrPort) (*Peer, error) {
+	req := struct {
+		Endpoint string `json:"endpoint"`
+	}{Endpoint: endpoint.String()}
+
+	var out Peer
+	if err := c.do(ctx, http.MethodPost, "/v1/peers/"+peerID+"/nat-endpoint", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Host is the control plane's host, without the port.
+func (c *Client) Host() string {
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // ListPeers returns every peer in a tenant, with the endpoints to send to them.
