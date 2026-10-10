@@ -3,6 +3,7 @@ package wire
 import (
 	"bytes"
 	"errors"
+	"net/netip"
 	"testing"
 )
 
@@ -66,5 +67,18 @@ func TestNewNonceIsUnique(t *testing.T) {
 	}
 	if a == b {
 		t.Error("two nonces came back equal")
+	}
+}
+
+func TestAddrPortRoundTrip(t *testing.T) {
+	for _, s := range []string{"203.0.113.7:51820", "[2001:db8::1]:9"} {
+		ap := netip.MustParseAddrPort(s)
+		buf := AppendAddrPort(nil, ap)
+		if len(buf) != AddrPortLen {
+			t.Fatalf("%s: len = %d, want %d", s, len(buf), AddrPortLen)
+		}
+		if got := ParseAddrPort(buf); got != ap {
+			t.Errorf("ParseAddrPort = %s, want %s", got, ap)
+		}
 	}
 }

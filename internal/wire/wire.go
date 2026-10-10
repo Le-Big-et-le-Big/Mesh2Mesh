@@ -2,8 +2,10 @@ package wire
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/netip"
 )
 
 // Version is the protocol version carried in byte 0
@@ -12,12 +14,21 @@ const Version = 0
 const (
 	TypeProbe      uint8 = 1
 	TypeProbeReply uint8 = 2
+	// Binding: a node asks the prober which address it is seen from.
+	TypeBindingRequest  uint8 = 3
+	TypeBindingResponse uint8 = 4
 )
 
 // Version, type, and 2 reserved
 const HeaderLen = 4
 
 const NonceLen = 16
+
+// 16-byte IP, then the port
+const AddrPortLen = 18
+
+// Nonce, then the address. Requests are padded to it.
+const BindingLen = NonceLen + AddrPortLen
 
 // MaxFrameLen caps
 const MaxFrameLen = 2048
@@ -52,4 +63,16 @@ func Decode(buf []byte) (typ uint8, payload []byte, err error) {
 		return 0, nil, fmt.Errorf("%w: %d", ErrVersion, buf[0])
 	}
 	return buf[1], buf[HeaderLen:], nil
+}
+
+func AppendAddrPort(dst []byte, ap netip.AddrPort) []byte {
+	ip := ap.Addr().As16()
+	dst = append(dst, ip[:]...)
+	return binary.BigEndian.AppendUint16(dst, ap.Port())
+}
+
+// ParseAddrPort reads AddrPortLen bytes written by AppendAddrPort.
+func ParseAddrPort(b []byte) netip.AddrPort {
+	ip := netip.AddrFrom16([16]byte(b[:16])).Unmap()
+	return netip.AddrPortFrom(ip, binary.BigEndian.Uint16(b[16:AddrPortLen]))
 }

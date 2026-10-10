@@ -122,6 +122,19 @@ func (p *Prober) Reachable(ctx context.Context, target netip.AddrPort) (bool, er
 	}
 }
 
+// answerBinding tells a node which address its request came from.
+func (p *Prober) answerBinding(payload []byte, src netip.AddrPort) {
+	// Never answer with more than we received.
+	if len(payload) < wire.BindingLen {
+		return
+	}
+	reply := wire.Encode(nil, wire.TypeBindingResponse, payload[:wire.NonceLen])
+	reply = wire.AppendAddrPort(reply, src)
+	if _, err := p.conn.WriteToUDPAddrPort(reply, src); err != nil {
+		p.log.Warn("could not answer binding request", "src", src.String(), "err", err)
+	}
+}
+
 // readLoop dispatches probe replies to whoever waits on their nonce.
 func (p *Prober) readLoop() {
 	buf := make([]byte, wire.MaxFrameLen)
@@ -137,6 +150,10 @@ func (p *Prober) readLoop() {
 		srcAP := netip.AddrPortFrom(src.AddrPort().Addr().Unmap(), uint16(src.Port))
 
 		typ, payload, err := wire.Decode(buf[:n])
+		if err == nil && typ == wire.TypeBindingRequest {
+			p.answerBinding(payload, srcAP)
+			continue
+		}
 		if err != nil || typ != wire.TypeProbeReply || len(payload) < wire.NonceLen {
 			p.log.Debug("ignoring unexpected datagram", "src", srcAP.String(), "err", err)
 			continue

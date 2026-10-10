@@ -49,13 +49,21 @@ replies come back to it).
 | `GET`  | `/v1/tenants`                   | List tenants                          |
 | `GET`  | `/v1/tenants/{id}`              | Fetch one tenant                      |
 | `POST` | `/v1/tenants/{id}/tokens`       | `{ttl_seconds?, max_uses?}`           |
-| `GET`  | `/v1/tenants/{id}/peers`        | Peers with `endpoint`/`direct_reachable` |
+| `GET`  | `/v1/tenants/{id}/peers`        | Peers with `endpoint`/`direct_reachable`/`nat_endpoint` |
 | `POST` | `/v1/peers/register`            | `{token, name, public_key}` → mesh address |
-| `POST` | `/v1/peers/{id}/endpoint`       | `{udp_port}` → probed endpoint        |
+| `POST` | `/v1/peers/{id}/endpoint`       | `{udp_port}` → probed endpoint, `probe_port` |
+| `POST` | `/v1/peers/{id}/nat-endpoint`   | `{endpoint}` → NAT mapping for hole punching |
 
 The token plaintext is returned **once** (only its SHA-256 is stored). The
 endpoint call takes the public IP from the request's source address, not the
-body.
+body, and the nat-endpoint call only accepts that same IP.
+
+## Connectivity
+
+If the control plane's probe of a node's UDP port is answered, peers send to it
+directly. Otherwise the node asks the prober which address it is seen from,
+reports it as `nat_endpoint`, and peers hole punch to that. This does not get
+through symmetric NATs.
 
 ## Layout
 

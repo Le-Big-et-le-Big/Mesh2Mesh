@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
 
+	"Mesh2Mesh/internal/prober"
 	"Mesh2Mesh/internal/wire"
 )
 
@@ -99,5 +102,38 @@ func TestHexKey(t *testing.T) {
 		if _, err := hexKey(bad); err == nil {
 			t.Errorf("hexKey(%q) accepted a bad key", bad)
 		}
+	}
+}
+
+func TestMeshBindDiscoversItsMappingFromTheProber(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	p, err := prober.Open("127.0.0.1:0", log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Close() }()
+	server := p.LocalAddr().(*net.UDPAddr).AddrPort()
+
+	b := &meshBind{log: log}
+	fns, port, err := b.Open(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = b.Close() }()
+	go func() {
+		packets := [][]byte{make([]byte, 1500)}
+		for {
+			if _, err := fns[0](packets, make([]int, 1), make([]conn.Endpoint, 1)); err != nil {
+				return
+			}
+		}
+	}()
+
+	mapped, err := b.discoverMapping(context.Background(), server)
+	if err != nil {
+		t.Fatalf("discoverMapping: %v", err)
+	}
+	if want := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), port); mapped != want {
+		t.Errorf("mapped = %s, want %s", mapped, want)
 	}
 }

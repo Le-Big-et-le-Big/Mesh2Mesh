@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
+	"net/netip"
 	"os"
+	"strconv"
 	"time"
 
 	"golang.zx2c4.com/wireguard/device"
@@ -31,8 +34,13 @@ type daemon struct {
 	// wg encrypts everything on mesh0 end to end and wgPeers is what syncPeers last gave it.
 	wg      *device.Device
 	wgPeers map[string]wgPeer
+	bind    *meshBind
 
 	reported bool
+	// Without direct connectivity, peers hole punch to natEndpoint, learned from the prober.
+	direct      bool
+	proberAddr  netip.AddrPort
+	natEndpoint netip.AddrPort
 }
 
 func runCmd(ctx context.Context, args []string) error {
@@ -135,6 +143,7 @@ func runCmd(ctx context.Context, args []string) error {
 		port:    udpPort,
 		wg:      wg,
 		wgPeers: make(map[string]wgPeer),
+		bind:    bind,
 	}
 
 	log.Info("mesh is up, traffic between peers is encrypted with WireGuard",
@@ -168,6 +177,8 @@ func (d *daemon) maintain(ctx context.Context) {
 		case <-peerTick.C:
 			if !d.reported {
 				d.reportEndpoint(ctx)
+			} else {
+				d.refreshNATEndpoint(ctx)
 			}
 			d.refreshPeers(ctx)
 		case <-endpointTick.C:
@@ -178,21 +189,52 @@ func (d *daemon) maintain(ctx context.Context) {
 
 // reportEndpoint tells the control plane which UDP port we bound
 func (d *daemon) reportEndpoint(ctx context.Context) {
-	peer, err := d.api.UpdateEndpoint(ctx, d.state.PeerID, d.port)
+	report, err := d.api.UpdateEndpoint(ctx, d.state.PeerID, d.port)
 	if err != nil {
 		d.log.Error("could not report endpoint to the control plane", "err", err)
 		return
 	}
 	d.reported = true
+	d.direct = report.DirectReachable
 
-	if peer.DirectReachable {
+	if d.direct {
 		d.log.Info("direct connectivity available: our UDP port accepts unsolicited traffic",
-			"endpoint", peer.Endpoint)
+			"endpoint", report.Endpoint)
 		return
 	}
-	d.log.Warn("no direct connectivity: our UDP port is not reachable from outside",
-		"endpoint", peer.Endpoint,
-		"hint", fmt.Sprintf("forward UDP %d to this host, or wait for holepunching/relay support", d.port))
+	d.log.Warn("no direct connectivity: our UDP port is not reachable from outside, falling back to UDP hole punching",
+		"endpoint", report.Endpoint,
+		"hint", fmt.Sprintf("forward UDP %d to this host for direct connections", d.port))
+
+	server, err := net.ResolveUDPAddr("udp", net.JoinHostPort(d.api.Host(), strconv.Itoa(report.ProbePort)))
+	if err != nil {
+		d.log.Error("could not resolve the control plane's prober, hole punching is unavailable", "err", err)
+		return
+	}
+	ap := server.AddrPort()
+	d.proberAddr = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+	d.refreshNATEndpoint(ctx)
+}
+
+// refreshNATEndpoint learns our NAT mapping from the prober and reports it when it changed.
+func (d *daemon) refreshNATEndpoint(ctx context.Context) {
+	if d.direct || !d.proberAddr.IsValid() {
+		return
+	}
+	mapped, err := d.bind.discoverMapping(ctx, d.proberAddr)
+	if err != nil {
+		d.log.Warn("could not learn our NAT mapping, peers cannot punch through to us", "err", err)
+		return
+	}
+	if mapped == d.natEndpoint {
+		return
+	}
+	if _, err := d.api.UpdateNATEndpoint(ctx, d.state.PeerID, mapped); err != nil {
+		d.log.Error("could not report our NAT mapping to the control plane", "nat_endpoint", mapped, "err", err)
+		return
+	}
+	d.log.Info("UDP hole punching ready: peers will send to our NAT mapping", "nat_endpoint", mapped)
+	d.natEndpoint = mapped
 }
 
 func (d *daemon) refreshPeers(ctx context.Context) {
