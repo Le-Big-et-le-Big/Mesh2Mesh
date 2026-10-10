@@ -1,5 +1,5 @@
-# golang:1.26.8-trixie
-FROM golang@sha256:bdca99a00bc16590cb1a0bb4e698f5fc5d6a64e4d5eef13d9f18a0ee08e5fa65 AS build
+# golang:1.26.9-trixie
+FROM golang@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
