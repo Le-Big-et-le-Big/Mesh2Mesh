@@ -1,20 +1,30 @@
 # golang:1.26.9-trixie
 FROM golang@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS build
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends busybox-static libcap2-bin \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
-      -o /out/meshd ./cmd/meshd
+      -o /out/bin/meshd ./cmd/meshd \
+ && cp "$(command -v busybox)" /out/bin/ip \
+ && install -d -m 0700 /out/etc/mesh2mesh
 
-# alpine:3.22
-FROM alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+RUN setcap cap_net_admin+ep /out/bin/meshd \
+ && setcap cap_net_admin+ep /out/bin/ip
 
-RUN apk add --no-cache ca-certificates iproute2
-COPY --from=build /out/meshd /usr/local/bin/meshd
+# gcr.io/distroless/static-debian13:nonroot
+FROM gcr.io/distroless/static-debian13@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+
+COPY --from=build /out/bin/ /usr/local/bin/
+COPY --from=build --chown=65532:65532 /out/etc/ /etc/
 
 ENV MESH2MESH_STATE=/etc/mesh2mesh/peer.json
 VOLUME /etc/mesh2mesh
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/meshd"]
 CMD ["run"]
