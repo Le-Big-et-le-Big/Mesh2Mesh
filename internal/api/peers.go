@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
@@ -208,6 +209,36 @@ func (s *Server) updateNATEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Info("peer nat endpoint updated", "peer_id", peer.ID, "nat_endpoint", endpoint.String())
 	writeJSON(w, http.StatusOK, peerView(peer))
+}
+
+func (s *Server) issueRelayToken(w http.ResponseWriter, r *http.Request) {
+	if s.relay == nil || s.prober == nil {
+		s.fail(w, r, http.StatusServiceUnavailable, "this control plane does not relay", nil)
+		return
+	}
+
+	peerID := r.PathValue("id")
+	peer, err := s.store.GetPeer(r.Context(), peerID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		s.fail(w, r, http.StatusNotFound, "no such peer", err)
+		return
+	case err != nil:
+		s.fail(w, r, http.StatusInternalServerError, "could not load peer", err)
+		return
+	}
+
+	token, err := s.relay.Issue(peer.ID, peer.TenantID, peer.MeshIP)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, "could not issue a relay token", err)
+		return
+	}
+
+	s.log.Info("relay token issued", "peer_id", peer.ID, "tenant_id", peer.TenantID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"relay_token": base64.StdEncoding.EncodeToString(token[:]),
+		"relay_port":  s.prober.LocalAddr().(*net.UDPAddr).Port,
+	})
 }
 
 func remoteAddr(r *http.Request) (netip.Addr, error) {

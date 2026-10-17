@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"Mesh2Mesh/internal/prober"
+	"Mesh2Mesh/internal/relay"
 	"Mesh2Mesh/internal/store"
 )
 
@@ -22,10 +23,12 @@ type Server struct {
 	// A nil prober disables the reachability test: every endpoint reports
 	// unreachable.
 	prober *prober.Prober
+	// nil disables relaying.
+	relay *relay.Relay
 }
 
-func New(st *store.Store, log *slog.Logger, p *prober.Prober) *Server {
-	return &Server{store: st, log: log, prober: p}
+func New(st *store.Store, log *slog.Logger, p *prober.Prober, r *relay.Relay) *Server {
+	return &Server{store: st, log: log, prober: p, relay: r}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -39,5 +42,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/peers/register", s.registerPeer)
 	mux.HandleFunc("POST /v1/peers/{id}/endpoint", s.updateEndpoint)
 	mux.HandleFunc("POST /v1/peers/{id}/nat-endpoint", s.updateNATEndpoint)
+	mux.HandleFunc("POST /v1/peers/{id}/relay", s.issueRelayToken)
 	return mux
 }

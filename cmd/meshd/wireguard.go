@@ -39,6 +39,10 @@ type meshBind struct {
 	conn *net.UDPConn
 	// bindings are binding requests waiting on the prober's answer.
 	bindings map[wire.Nonce]binding
+
+	relay      netip.AddrPort
+	relayToken wire.RelayToken
+	relayAcked time.Time
 }
 
 type binding struct {
@@ -89,6 +93,13 @@ func (b *meshBind) SetMark(uint32) error { return nil }
 func (b *meshBind) BatchSize() int { return 1 }
 
 func (b *meshBind) ParseEndpoint(s string) (conn.Endpoint, error) {
+	if ip, ok := strings.CutPrefix(s, relayEndpointPrefix); ok {
+		addr, err := netip.ParseAddr(ip)
+		if err != nil || !addr.Is4() {
+			return nil, fmt.Errorf("relay endpoint %q: want an IPv4 mesh address", s)
+		}
+		return &relayEndpoint{meshIP: addr}, nil
+	}
 	ap, err := netip.ParseAddrPort(s)
 	if err != nil {
 		return nil, err
@@ -104,6 +115,9 @@ func (b *meshBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 		return net.ErrClosed
 	}
 
+	if rep, ok := ep.(*relayEndpoint); ok {
+		return b.sendRelayed(c, bufs, rep.meshIP)
+	}
 	dst, ok := ep.(*conn.StdNetEndpoint)
 	if !ok {
 		return conn.ErrWrongEndpointType
@@ -177,6 +191,10 @@ func (b *meshBind) receive(c *net.UDPConn) conn.ReceiveFunc {
 				continue
 			}
 			if packets[0][0] == wire.Version {
+				if size, ep, ok := b.unwrapRelayed(packets[0][:n], from); ok {
+					sizes[0], eps[0] = size, ep
+					return 1, nil
+				}
 				reply = b.answerProbe(c, reply, packets[0][:n], from)
 				continue
 			}
@@ -196,6 +214,9 @@ func (b *meshBind) answerProbe(c *net.UDPConn, reply, frame []byte, from netip.A
 		return reply
 	case typ == wire.TypeBindingResponse:
 		b.deliverBinding(payload, from)
+		return reply
+	case typ == wire.TypeRelayAck:
+		b.ackRelay(payload, from)
 		return reply
 	case typ == wire.TypeProbeReply:
 		b.log.Debug("unsolicited probe reply", "src", from.String())
@@ -237,6 +258,18 @@ func (b *meshBind) deliverBinding(payload []byte, from netip.AddrPort) {
 type wgPeer struct {
 	meshIP   netip.Addr
 	endpoint netip.AddrPort
+	since    time.Time
+	relayed  bool
+}
+
+func (p wgPeer) target() string {
+	switch {
+	case p.relayed:
+		return relayEndpointPrefix + p.meshIP.String()
+	case p.endpoint.IsValid():
+		return p.endpoint.String()
+	}
+	return ""
 }
 
 // syncPeers brings WireGuard's peer list in line with the control plane's,
@@ -244,6 +277,9 @@ type wgPeer struct {
 func (d *daemon) syncPeers(peers []client.Peer) (routable int, err error) {
 	var cfg strings.Builder
 	next := make(map[string]wgPeer, len(peers))
+	now := time.Now()
+	relayUp := d.bind.relayUp(now)
+	var handshakes map[string]time.Time
 
 	for _, p := range peers {
 		if p.PeerID == d.state.PeerID {
@@ -277,19 +313,42 @@ func (d *daemon) syncPeers(peers []client.Peer) (routable int, err error) {
 			// Keep the last endpoint: WireGuard cannot unset one, and it may still work.
 			want.endpoint = prev.endpoint
 		}
-		if want.endpoint.IsValid() {
+		if known && want.endpoint == prev.endpoint {
+			want.since, want.relayed = prev.since, prev.relayed
+		} else {
+			want.since = now
+		}
+
+		if relayUp && !want.relayed {
+			switch {
+			case !want.endpoint.IsValid():
+				want.relayed = true
+				d.log.Info("no endpoint to reach peer, relaying through the control plane", "peer", p.Name)
+			case now.Sub(want.since) > punchBudget:
+				if handshakes == nil {
+					handshakes = d.handshakes()
+				}
+				if now.Sub(handshakes[key]) > handshakeStale {
+					want.relayed = true
+					d.log.Info("no handshake with peer, relaying through the control plane",
+						"peer", p.Name, "endpoint", want.endpoint)
+				}
+			}
+		}
+
+		if want.target() != "" {
 			routable++
 		}
 		next[key] = want
-		if known && prev == want {
+		if known && prev.meshIP == want.meshIP && prev.target() == want.target() {
 			continue
 		}
 
 		fmt.Fprintf(&cfg, "public_key=%s\nreplace_allowed_ips=true\nallowed_ip=%s/32\n", key, meshIP)
-		if want.endpoint.IsValid() && want.endpoint != prev.endpoint {
+		if t := want.target(); t != "" && t != prev.target() {
 			// Keepalive only with an endpoint: setting it sends at once, and
 			// with nowhere to send WireGuard logs an error.
-			fmt.Fprintf(&cfg, "endpoint=%s\npersistent_keepalive_interval=%d\n", want.endpoint, keepaliveSeconds)
+			fmt.Fprintf(&cfg, "endpoint=%s\npersistent_keepalive_interval=%d\n", t, keepaliveSeconds)
 		}
 	}
 	for key := range d.wgPeers {
