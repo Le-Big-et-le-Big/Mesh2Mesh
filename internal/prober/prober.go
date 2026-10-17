@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"Mesh2Mesh/internal/wire"
@@ -33,7 +34,16 @@ type Prober struct {
 	waiters map[wire.Nonce]waiter
 
 	closeOnce sync.Once
+
+	relay atomic.Pointer[relayHandler]
 }
+
+// frame is only valid until HandleFrame returns.
+type Relay interface {
+	HandleFrame(c *net.UDPConn, frame []byte, src netip.AddrPort)
+}
+
+type relayHandler struct{ Relay }
 
 // waiter is one in-flight probe: where it went, and the channel closed on reply.
 type waiter struct {
@@ -61,6 +71,8 @@ func Open(addr string, log *slog.Logger) (*Prober, error) {
 }
 
 func (p *Prober) LocalAddr() net.Addr { return p.conn.LocalAddr() }
+
+func (p *Prober) SetRelay(r Relay) { p.relay.Store(&relayHandler{r}) }
 
 func (p *Prober) Close() error {
 	var err error
@@ -152,6 +164,12 @@ func (p *Prober) readLoop() {
 		typ, payload, err := wire.Decode(buf[:n])
 		if err == nil && typ == wire.TypeBindingRequest {
 			p.answerBinding(payload, srcAP)
+			continue
+		}
+		if err == nil && (typ == wire.TypeRelayRegister || typ == wire.TypeRelayData) {
+			if h := p.relay.Load(); h != nil {
+				h.HandleFrame(p.conn, buf[:n], srcAP)
+			}
 			continue
 		}
 		if err != nil || typ != wire.TypeProbeReply || len(payload) < wire.NonceLen {

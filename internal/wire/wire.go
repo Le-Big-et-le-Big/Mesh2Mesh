@@ -17,7 +17,18 @@ const (
 	// Binding: a node asks the prober which address it is seen from.
 	TypeBindingRequest  uint8 = 3
 	TypeBindingResponse uint8 = 4
+	// Relay: register with a token from the API, then send WireGuard datagrams.
+	TypeRelayRegister uint8 = 5
+	TypeRelayAck      uint8 = 6
+	TypeRelayData     uint8 = 7
 )
+
+const RelayTokenLen = 16
+
+type RelayToken [RelayTokenLen]byte
+
+// Header, then the destination mesh IPv4 to the relay, the source one from it.
+const RelayHeaderLen = HeaderLen + 4
 
 // Version, type, and 2 reserved
 const HeaderLen = 4

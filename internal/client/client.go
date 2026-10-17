@@ -195,6 +195,19 @@ func (c *Client) UpdateNATEndpoint(ctx context.Context, peerID string, endpoint 
 	return &out, nil
 }
 
+type RelayGrant struct {
+	Token string `json:"relay_token"`
+	Port  int    `json:"relay_port"`
+}
+
+func (c *Client) IssueRelayToken(ctx context.Context, peerID string) (*RelayGrant, error) {
+	var out RelayGrant
+	if err := c.do(ctx, http.MethodPost, "/v1/peers/"+peerID+"/relay", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Host is the control plane's host, without the port.
 func (c *Client) Host() string {
 	u, err := url.Parse(c.baseURL)

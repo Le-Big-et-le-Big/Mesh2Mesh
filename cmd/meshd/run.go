@@ -41,6 +41,7 @@ type daemon struct {
 	direct      bool
 	proberAddr  netip.AddrPort
 	natEndpoint netip.AddrPort
+	relayIssued time.Time
 }
 
 func runCmd(ctx context.Context, args []string) error {
@@ -151,6 +152,7 @@ func runCmd(ctx context.Context, args []string) error {
 		"peer_id", st.PeerID, "tenant", st.TenantName, "public_key", st.PublicKey)
 
 	d.reportEndpoint(ctx)
+	d.refreshRelay(ctx)
 	d.refreshPeers(ctx)
 	go d.maintain(ctx)
 
@@ -180,6 +182,7 @@ func (d *daemon) maintain(ctx context.Context) {
 			} else {
 				d.refreshNATEndpoint(ctx)
 			}
+			d.refreshRelay(ctx)
 			d.refreshPeers(ctx)
 		case <-endpointTick.C:
 			d.reportEndpoint(ctx)

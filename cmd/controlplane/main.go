@@ -13,6 +13,7 @@ import (
 
 	"Mesh2Mesh/internal/api"
 	"Mesh2Mesh/internal/prober"
+	"Mesh2Mesh/internal/relay"
 	"Mesh2Mesh/internal/store"
 )
 
@@ -54,10 +55,13 @@ func run(log *slog.Logger) error {
 	defer func() { _ = probe.Close() }()
 	log.Info("endpoint prober listening", "addr", probe.LocalAddr().String())
 
+	rel := relay.New(log)
+	probe.SetRelay(rel)
+
 	addr := env("LISTEN_ADDR", defaultAddr)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.New(st, log, probe).Routes(),
+		Handler:           api.New(st, log, probe, rel).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
