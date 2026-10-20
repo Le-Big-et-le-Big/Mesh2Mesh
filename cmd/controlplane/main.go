@@ -58,10 +58,15 @@ func run(log *slog.Logger) error {
 	rel := relay.New(log)
 	probe.SetRelay(rel)
 
+	webToken := os.Getenv("WEB_API_TOKEN")
+	if webToken == "" {
+		log.Warn("WEB_API_TOKEN is not set: the web UI's per-user routes are off and anyone can list tenants")
+	}
+
 	addr := env("LISTEN_ADDR", defaultAddr)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.New(st, log, probe, rel).Routes(),
+		Handler:           api.New(st, log, probe, rel, webToken).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
