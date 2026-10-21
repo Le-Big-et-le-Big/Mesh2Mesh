@@ -1,0 +1,597 @@
+/* Mesh2Mesh login theme: the web UI's tokens (web/src/styles.css) and its
+   /login page layout, so the hop to Keycloak does not look like another site. */
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: light dark;
+  --background: #ffffff;
+  --foreground: #1f1e1e;
+  --page: #fafaf9;
+  --primary: #242424;
+  --primary-foreground: #fafafa;
+  --muted: #f7f7f6;
+  --muted-foreground: #706e6d;
+  --accent: #f3f3f2;
+  --border: #e7e5e4;
+  --input: #dcdad9;
+  --ring: #4a72d8;
+  --brand: #3d63d6;
+  --destructive: #c8392b;
+  --success: #1f9d55;
+  --warning: #c27c0e;
+  --radius: 0.5rem;
+  --shadow: 0 12px 40px -20px rgb(0 0 0 / 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1c1c1c;
+    --foreground: #eeedec;
+    --page: #161616;
+    --primary: #f2f1f0;
+    --primary-foreground: #1c1c1c;
+    --muted: #222222;
+    --muted-foreground: #a3a09e;
+    --accent: #2a2a2a;
+    --border: #2f2e2d;
+    --input: #3a3938;
+    --ring: #7c9cf0;
+    --brand: #7c9cf0;
+    --destructive: #f0766a;
+    --success: #4cc283;
+    --warning: #e9ac4c;
+    --shadow: 0 12px 40px -20px rgb(0 0 0 / 0.7);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html.m2m {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.m2m-body {
+  margin: 0;
+  min-height: 100svh;
+  background: var(--page);
+  color: var(--foreground);
+}
+
+a {
+  color: var(--brand);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+.m2m-page {
+  display: flex;
+  min-height: 100svh;
+  flex-direction: column;
+}
+
+/* Top bar */
+.m2m-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+}
+.m2m-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--foreground);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.m2m-brand:hover {
+  text-decoration: none;
+}
+.m2m-mark {
+  width: 28px;
+  height: 28px;
+}
+.m2m-mark-bg {
+  fill: var(--primary);
+}
+.m2m-mark-line {
+  stroke: var(--primary-foreground);
+  opacity: 0.55;
+}
+.m2m-mark-dot {
+  fill: var(--primary-foreground);
+}
+.m2m-wordmark {
+  font-size: 17px;
+}
+
+/* Layout */
+.m2m-main {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 64px;
+}
+.m2m-column {
+  width: 100%;
+  max-width: 400px;
+}
+.m2m-card {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: var(--shadow);
+}
+@media (max-width: 480px) {
+  .m2m-main {
+    padding-top: 4vh;
+  }
+  .m2m-card {
+    padding: 24px;
+  }
+}
+
+.m2m-card-header {
+  margin-bottom: 24px;
+}
+#kc-page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.m2m-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+}
+.m2m-subtitle:empty {
+  display: none;
+}
+.m2m-required {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.required {
+  color: var(--destructive);
+}
+
+.m2m-back {
+  margin: 24px 0 0;
+  text-align: center;
+  font-size: 14px;
+}
+.m2m-back a {
+  color: var(--muted-foreground);
+}
+.m2m-back a:hover {
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+/* The account this login is for, once Keycloak knows it */
+.m2m-username {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 14px;
+}
+.m2m-avatar {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+#kc-attempted-username {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+#reset-login {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+/* Forms: classes from theme.properties, plus bare elements for the pages
+   whose base templates hard-code their own markup. */
+.m2m-form,
+#kc-content form {
+  margin: 0;
+}
+.m2m-field {
+  margin-bottom: 16px;
+}
+#kc-form-buttons {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+/* inline-block: the user-profile pages put a bare "*" after required labels. */
+.m2m-label,
+#kc-content label:not(.m2m-check):not(#kc-attempted-username) {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.m2m-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.m2m-label-row .m2m-label {
+  margin-bottom: 6px;
+}
+.m2m-link-muted {
+  font-size: 13px;
+}
+
+.m2m-input,
+#kc-content input[type="text"],
+#kc-content input[type="email"],
+#kc-content input[type="password"],
+#kc-content input[type="tel"],
+#kc-content input[type="number"],
+#kc-content select,
+#kc-content textarea {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 15px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#kc-content textarea {
+  height: auto;
+  padding: 8px 12px;
+}
+.m2m-input:focus,
+#kc-content input:focus-visible,
+#kc-content select:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 25%, transparent);
+}
+.m2m-input[aria-invalid="true"],
+#kc-content input[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+.m2m-field-error,
+#kc-content .m2m-field-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--destructive);
+}
+.m2m-help {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+
+.m2m-input-group {
+  position: relative;
+}
+.m2m-input-group .m2m-input {
+  padding-right: 44px;
+}
+.m2m-reveal {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.m2m-reveal:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.m2m-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.m2m-check input,
+.m2m-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+/* Buttons */
+.m2m-button,
+#kc-content input[type="submit"],
+#kc-content button[type="submit"] {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, opacity 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.m2m-button-primary,
+#kc-content input[type="submit"]:not(.m2m-button-secondary),
+#kc-content button[type="submit"]:not(.m2m-button-secondary) {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.m2m-button-primary:hover,
+#kc-content input[type="submit"]:not(.m2m-button-secondary):hover {
+  background: color-mix(in oklab, var(--primary) 82%, var(--background));
+}
+.m2m-button-secondary {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+.m2m-button-secondary:hover {
+  background: var(--muted);
+  text-decoration: none;
+}
+.m2m-button-block {
+  width: 100%;
+}
+.m2m-button-large {
+  height: 44px;
+  font-size: 15px;
+}
+.m2m-button:disabled,
+#kc-content input[type="submit"]:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.m2m-button:focus-visible,
+#kc-content input[type="submit"]:focus-visible,
+.m2m-reveal:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Pages that put two buttons side by side (update password, consent, …) */
+#kc-form-buttons > * + * {
+  margin-top: 10px;
+}
+
+/* Alerts */
+.m2m-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.m2m-alert-error {
+  border-color: color-mix(in oklab, var(--destructive) 30%, transparent);
+  background: color-mix(in oklab, var(--destructive) 6%, transparent);
+  color: var(--destructive);
+}
+.m2m-alert-warning {
+  border-color: color-mix(in oklab, var(--warning) 35%, transparent);
+  background: color-mix(in oklab, var(--warning) 8%, transparent);
+  color: var(--warning);
+}
+.m2m-alert-success {
+  border-color: color-mix(in oklab, var(--success) 30%, transparent);
+  background: color-mix(in oklab, var(--success) 7%, transparent);
+  color: var(--success);
+}
+.m2m-alert-info {
+  border-color: var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+}
+.m2m-alert .m2m-icon {
+  margin-top: 2px;
+}
+.m2m-alert-text {
+  min-width: 0;
+}
+/* Within the form, the first-error alert sits between the fields and the button. */
+#kc-form-login .m2m-alert {
+  margin-top: -4px;
+}
+
+/* Icons (lucide), drawn with masks so they take the text color */
+.m2m-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+.m2m-icon-eye {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+.m2m-icon-eye-off {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.73 5.08A10.43 10.43 0 0 1 12 5c4.39 0 8.4 2.73 9.94 6.65a1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49'/%3E%3Cpath d='M14.08 14.16a3 3 0 0 1-4.24-4.24'/%3E%3Cpath d='M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14'/%3E%3Cpath d='m2 2 20 20'/%3E%3C/svg%3E");
+}
+.m2m-icon-alert {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E");
+}
+.m2m-icon-check {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E");
+}
+.m2m-icon-info {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4M12 8h.01'/%3E%3C/svg%3E");
+}
+.m2m-icon-restart {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+}
+
+/* Identity providers */
+.m2m-social {
+  margin-top: 20px;
+}
+.m2m-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.m2m-divider::before,
+.m2m-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+.m2m-social-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.m2m-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* Text-only pages (info, error, logout, expired page) */
+.instruction,
+#kc-info-message p,
+#kc-error-message p {
+  margin: 0 0 16px;
+  color: var(--muted-foreground);
+}
+.m2m-center {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 14px;
+}
+#kc-info {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+#kc-info p {
+  margin: 0;
+}
+.clearfix {
+  clear: both;
+}
+
+/* Locale switcher (only when the realm has several languages) */
+.m2m-locale {
+  position: relative;
+}
+#kc-current-locale-link {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.m2m-locale-list {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  display: none;
+  min-width: 160px;
+  margin: 6px 0 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: var(--shadow);
+  list-style: none;
+}
+#kc-current-locale-link[aria-expanded="true"] + .m2m-locale-list {
+  display: block;
+}
+.m2m-locale-item {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--foreground);
+  font-size: 14px;
+}
+.m2m-locale-item:hover {
+  background: var(--accent);
+  text-decoration: none;
+}
