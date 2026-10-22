@@ -37,8 +37,9 @@ All of them take `--api` (`MESH2MESH_API`, default `http://localhost:8090`) and
 
 The control plane is configured by environment only: `DATABASE_URL`
 (`postgres://mesh:mesh@localhost:5432/mesh2mesh?sslmode=disable`), `LISTEN_ADDR`
-(`:8090`) and `PROBE_ADDR` (`:51821`, must be reachable from the nodes — probe
-replies come back to it).
+(`:8090`), `PROBE_ADDR` (`:51821`, must be reachable from the nodes — probe
+replies come back to it) and `WEB_API_TOKEN` (shared with the web UI; unset
+leaves `/v1/me` off and the tenant list open).
 
 ## API
 
@@ -46,13 +47,18 @@ replies come back to it).
 | ------ | ------------------------------- | ------------------------------------- |
 | `GET`  | `/healthz`                      | Liveness + database reachability      |
 | `POST` | `/v1/tenants`                   | `{name, cidr?}`                       |
-| `GET`  | `/v1/tenants`                   | List tenants                          |
-| `GET`  | `/v1/tenants/{id}`              | Fetch one tenant                      |
+| `GET`  | `/v1/tenants`                   | List tenants (web UI token only)      |
+| `GET`  | `/v1/tenants/{id}`              | Fetch one tenant (web UI token only)  |
 | `POST` | `/v1/tenants/{id}/tokens`       | `{ttl_seconds?, max_uses?}`           |
 | `GET`  | `/v1/tenants/{id}/peers`        | Peers with `endpoint`/`direct_reachable`/`nat_endpoint` |
 | `POST` | `/v1/peers/register`            | `{token, name, public_key}` → mesh address |
 | `POST` | `/v1/peers/{id}/endpoint`       | `{udp_port}` → probed endpoint, `probe_port` |
 | `POST` | `/v1/peers/{id}/nat-endpoint`   | `{endpoint}` → NAT mapping for hole punching |
+
+The web UI has its own routes under `/v1/me/...` (tenants, members,
+`POST /v1/me/tenants/{id}/invites`, `POST /v1/me/invites/accept`,
+`POST /v1/me/tenants/{id}/claim`). They need `Authorization: Bearer
+$WEB_API_TOKEN` and the user in `X-Mesh2Mesh-User`.
 
 The token plaintext is returned **once** (only its SHA-256 is stored). The
 endpoint call takes the public IP from the request's source address, not the
@@ -64,6 +70,28 @@ If the control plane's probe of a node's UDP port is answered, peers send to it
 directly. Otherwise the node asks the prober which address it is seen from,
 reports it as `nat_endpoint`, and peers hole punch to that. This does not get
 through symmetric NATs.
+
+## Web UI
+
+`web/` is a React app with a small Node server that shows each tenant's
+machines and their connectivity, manages members and invites, and gives the
+`meshd` commands to run on a node. Login goes through Keycloak.
+
+```sh
+docker compose up -d keycloak web   # UI on :8080, Keycloak on :8081
+```
+
+The Keycloak realm in `keycloak/import/` comes with a dev user and dev secrets:
+change them before exposing it. For local development without login:
+
+```sh
+cd web && npm install
+AUTH_DISABLED=true CONTROLPLANE_URL=http://localhost:8090 CONTROLPLANE_TOKEN=... npm run dev:server
+npm run dev
+```
+
+The routes `meshd` calls are still open: anyone who knows a tenant id can join
+a node to it, so keep tenant ids private.
 
 ## Layout
 
@@ -77,3 +105,5 @@ through symmetric NATs.
 | `internal/wire`     | Probe framing, shares the node socket with WireGuard     |
 | `internal/prober`   | Control-plane reachability probe                         |
 | `migrations`        | SQL schema                                               |
+| `web`               | Web UI and the Node server that serves it                |
+| `keycloak`          | Keycloak realm (`import/`) and login theme (`themes/`)   |
