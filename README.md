@@ -85,9 +85,9 @@ The Keycloak realm in `keycloak/import/` comes with a dev user and dev secrets:
 change them before exposing it. For local development without login:
 
 ```sh
-cd web && npm install
-AUTH_DISABLED=true CONTROLPLANE_URL=http://localhost:8090 CONTROLPLANE_TOKEN=... npm run dev:server
-npm run dev
+cd web && pnpm install
+AUTH_DISABLED=true CONTROLPLANE_URL=http://localhost:8090 CONTROLPLANE_TOKEN=... pnpm dev:server
+pnpm dev
 ```
 
 The routes `meshd` calls are still open: anyone who knows a tenant id can join

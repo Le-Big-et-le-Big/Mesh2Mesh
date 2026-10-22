@@ -2,18 +2,18 @@
 FROM node@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS build
 
 WORKDIR /src
-COPY web/package.json web/package-lock.json ./
-RUN npm ci --no-fund --no-audit
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
 COPY web/ ./
-RUN npm run build
+RUN pnpm run build
 
 # node:24-alpine3.24 (lts)
 FROM node@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
 
 WORKDIR /app
 # The server's only runtime dependency is jose; everything else is in dist.
-COPY web/package.json web/package-lock.json ./
-RUN npm ci --omit=dev --no-fund --no-audit && npm cache clean --force
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --prod --frozen-lockfile && pnpm store prune
 COPY --from=build /src/dist ./dist
 COPY web/src/backend ./src/backend
 
