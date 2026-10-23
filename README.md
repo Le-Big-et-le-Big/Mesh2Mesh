@@ -38,8 +38,14 @@ All of them take `--api` (`MESH2MESH_API`, default `http://localhost:8090`) and
 The control plane is configured by environment only: `DATABASE_URL`
 (`postgres://mesh:mesh@localhost:5432/mesh2mesh?sslmode=disable`), `LISTEN_ADDR`
 (`:8090`), `PROBE_ADDR` (`:51821`, must be reachable from the nodes — probe
-replies come back to it) and `WEB_API_TOKEN` (shared with the web UI; unset
-leaves `/v1/me` off and the tenant list open).
+replies come back to it), `WEB_API_TOKEN` (shared with the web UI; unset
+leaves `/v1/me` off and the tenant list open) and `TRUSTED_PROXIES`
+(comma-separated addresses or CIDRs of reverse proxies whose `X-Forwarded-For`
+gives the node's address).
+
+For production, `docker-compose.prod.yml` runs everything behind Traefik with
+Let's Encrypt: copy `.env.prod.example` to `.env`, fill it in, and run
+`docker compose -f docker-compose.prod.yml up -d`.
 
 ## API
 
