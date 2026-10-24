@@ -1,9 +1,7 @@
-# golang:1.26.9-trixie
-FROM golang@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS build
+# golang:1.26.10-alpine3.24
+FROM golang@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba AS build
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends busybox-static libcap2-bin \
- && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache busybox-static libcap-setcap
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -11,7 +9,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
       -o /out/bin/meshd ./cmd/meshd \
- && cp "$(command -v busybox)" /out/bin/ip \
+ && cp /bin/busybox.static /out/bin/ip \
  && install -d -m 0700 /out/etc/mesh2mesh
 
 RUN setcap cap_net_admin+ep /out/bin/meshd \
