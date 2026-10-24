@@ -21,6 +21,28 @@ A node sees peers that registered after it on its next refresh, so a fresh pair
 takes up to 15s to reach each other. Schema changes need a clean volume
 (`docker compose down -v`) or `psql` by hand.
 
+## Containers
+
+Both images are distroless (no shell, no package manager) and run as the
+unprivileged user 65532 on a read-only root filesystem. The meshd image adds
+one binary to that, a static busybox installed as the `ip` it shells out to.
+
+```sh
+docker compose up -d --build     # postgres + control plane, both read-only
+
+docker build -f Containerfile.meshd -t meshd .
+docker run -d --name meshd --network host \
+  --read-only --tmpfs /run:uid=65532,gid=65532,mode=0700 \
+  --cap-drop ALL --cap-add NET_ADMIN --device /dev/net/tun \
+  -v meshd-state:/etc/mesh2mesh meshd
+```
+
+`setup` and `join` take the same flags in place of the default `run`. meshd
+gets `NET_ADMIN` from a file capability, so every command needs
+`--cap-add NET_ADMIN` and `no-new-privileges` must stay off. The state volume
+has to be writable by 65532: a root-owned `/etc/mesh2mesh` bind-mounted from the
+host will not work.
+
 ## Commands
 
 | Command               | What it does                                              |

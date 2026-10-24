@@ -11,11 +11,45 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mesh -d mesh2mesh"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  controlplane:
+    build:
+      context: .
+      dockerfile: Containerfile.controlplane
+    environment:
+      DATABASE_URL: postgres://mesh:mesh@postgres:5432/mesh2mesh?sslmode=disable
+      WEB_API_TOKEN: ${WEB_API_TOKEN:-mesh2mesh-dev-token}
+    ports:
+      - "8090:8090"
+      - "51821:51821/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   # Identity for the web UI. start-dev keeps its data in the keycloak-data
   # volume; the realm in keycloak/import is imported once, on first start, and

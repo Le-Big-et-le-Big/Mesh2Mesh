@@ -8,10 +8,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
       -o /out/controlplane ./cmd/controlplane
 
-# alpine:3.22
-FROM alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+# gcr.io/distroless/static-debian13:nonroot
+FROM gcr.io/distroless/static-debian13@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 
-RUN apk add --no-cache ca-certificates
 COPY --from=build /out/controlplane /usr/local/bin/controlplane
 
 # LISTEN_ADDR :8090 (API), PROBE_ADDR :51821/udp

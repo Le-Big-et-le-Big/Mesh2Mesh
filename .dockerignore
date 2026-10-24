@@ -1,2 +1,15 @@
+.git
+.github
+.claude
+.env
+*.md
+LICENSE
+Containerfile.*
+docker-compose.yml
+.dockerignore
+/Mesh2Mesh
+/meshd
+/server
+/dist
 web/node_modules
 web/dist
