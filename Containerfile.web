@@ -1,0 +1,27 @@
+# node:24-alpine3.24 (lts)
+FROM node@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS build
+
+WORKDIR /src
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm run build
+
+# node:24-alpine3.24 (lts)
+FROM node@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
+
+WORKDIR /app
+# The server's only runtime dependency is jose; everything else is in dist.
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --prod --frozen-lockfile && pnpm store prune
+COPY --from=build /src/dist ./dist
+COPY web/src/backend ./src/backend
+
+ENV NODE_ENV=production \
+    PORT=8080 \
+    CONTROLPLANE_URL=http://controlplane:8090
+EXPOSE 8080
+# the image's "node" user
+USER 1000:1000
+HEALTHCHECK --interval=30s --timeout=3s CMD ["wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+ENTRYPOINT ["node", "/app/src/backend/index.mjs"]

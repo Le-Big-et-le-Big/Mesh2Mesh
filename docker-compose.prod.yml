@@ -1,0 +1,167 @@
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  traefik:
+    <<: *restart
+    # traefik v3.7.16
+    image: traefik:v3.7.16@sha256:c8a121e4bb1347e8fd52657fab12f2cb70b68f8a018895e2068f92c9e519b9c2
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=mesh2mesh-edge
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls.certresolver=le
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --ping=true
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      edge:
+        ipv4_address: 172.31.250.2
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    <<: *restart
+    # postgres 17.11-alpine3.24
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_USER: mesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: mesh2mesh
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesh -d mesh2mesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  controlplane:
+    <<: *restart
+    image: ghcr.io/le-big-et-le-big/mesh2mesh-controlplane:${MESH2MESH_TAG:-latest}
+    environment:
+      DATABASE_URL: postgres://mesh:${POSTGRES_PASSWORD}@postgres:5432/mesh2mesh?sslmode=disable
+      LISTEN_ADDR: ":8090"
+      PROBE_ADDR: ":51821"
+      WEB_API_TOKEN: ${WEB_API_TOKEN:?set WEB_API_TOKEN}
+      TRUSTED_PROXIES: 172.31.250.2
+    ports:
+      - "51821:51821/udp"
+    networks: [edge, internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`${API_HOST:?set API_HOST}`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.services.api.loadbalancer.server.port=8090
+
+  keycloak-db:
+    <<: *restart
+    # postgres 17.11-alpine3.24
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak-db:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    <<: *restart
+    # keycloak 26.8.1
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: https://${AUTH_HOST}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      WEB_PUBLIC_URL: https://${WEB_HOST}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set OIDC_CLIENT_SECRET}
+    volumes:
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+      - ./keycloak/themes/mesh2mesh:/opt/keycloak/themes/mesh2mesh:ro
+    networks: [edge, internal]
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.auth.rule=Host(`${AUTH_HOST:?set AUTH_HOST}`)
+      - traefik.http.routers.auth.entrypoints=websecure
+      - traefik.http.services.auth.loadbalancer.server.port=8080
+
+  web:
+    <<: *restart
+    image: ghcr.io/le-big-et-le-big/mesh2mesh-web:${MESH2MESH_TAG:-latest}
+    environment:
+      CONTROLPLANE_URL: http://controlplane:8090
+      PUBLIC_API_URL: https://${API_HOST}
+      PUBLIC_URL: https://${WEB_HOST:?set WEB_HOST}
+      OIDC_ISSUER: https://${AUTH_HOST}/realms/mesh2mesh
+      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/mesh2mesh
+      OIDC_CLIENT_ID: mesh2mesh-web
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      CONTROLPLANE_TOKEN: ${WEB_API_TOKEN}
+    networks: [edge]
+    depends_on:
+      controlplane:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`${WEB_HOST}`)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.services.web.loadbalancer.server.port=8080
+
+networks:
+  edge:
+    name: mesh2mesh-edge
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+  internal:
+    internal: true
+
+volumes:
+  pgdata:
+  keycloak-db:
+  letsencrypt:

@@ -333,8 +333,13 @@ func wrap(err error) error {
 		return ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
-		return fmt.Errorf("%w: %s", ErrConflict, pgErr.ConstraintName)
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505": // unique_violation
+			return fmt.Errorf("%w: %s", ErrConflict, pgErr.ConstraintName)
+		case "22P02": // invalid_text_representation: an id that is not a uuid
+			return ErrNotFound
+		}
 	}
 	return err
 }

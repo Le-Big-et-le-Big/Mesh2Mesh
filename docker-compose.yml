@@ -37,6 +37,7 @@ services:
       dockerfile: Containerfile.controlplane
     environment:
       DATABASE_URL: postgres://mesh:mesh@postgres:5432/mesh2mesh?sslmode=disable
+      WEB_API_TOKEN: ${WEB_API_TOKEN:-mesh2mesh-dev-token}
     ports:
       - "8090:8090"
       - "51821:51821/udp"
@@ -50,5 +51,60 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # Identity for the web UI. start-dev keeps its data in the keycloak-data
+  # volume; the realm in keycloak/import is imported once, on first start, and
+  # its login pages use the theme in keycloak/themes.
+  keycloak:
+    # keycloak 26.8.1
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # The issuer in tokens is built from this, so it is the URL browsers use;
+      # the web container still reaches Keycloak as keycloak:8080.
+      KC_HOSTNAME: ${KEYCLOAK_URL:-http://localhost:8081}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+      # Read by the realm import.
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:8080}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-mesh2mesh-dev-secret}
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+      - ./keycloak/themes/mesh2mesh:/opt/keycloak/themes/mesh2mesh:ro
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: Containerfile.web
+    environment:
+      # The quickstart runs the control plane on the host with `go run`.
+      CONTROLPLANE_URL: ${CONTROLPLANE_URL:-http://host.docker.internal:8090}
+      # What the UI tells nodes to pass to `meshd join --api`.
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8090}
+      PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:8080}
+      OIDC_ISSUER: ${KEYCLOAK_URL:-http://localhost:8081}/realms/mesh2mesh
+      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/mesh2mesh
+      OIDC_CLIENT_ID: mesh2mesh-web
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-mesh2mesh-dev-secret}
+      # Must equal the control plane's WEB_API_TOKEN: it lets this server act
+      # for the logged-in user on the control plane's /v1/me routes.
+      CONTROLPLANE_TOKEN: ${WEB_API_TOKEN:-mesh2mesh-dev-token}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - keycloak
+
 volumes:
   pgdata:
+  keycloak-data:

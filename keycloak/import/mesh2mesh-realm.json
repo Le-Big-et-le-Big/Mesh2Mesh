@@ -1,0 +1,57 @@
+{
+  "realm": "mesh2mesh",
+  "displayName": "Mesh2Mesh",
+  "loginTheme": "mesh2mesh",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": true,
+  "clients": [
+    {
+      "clientId": "mesh2mesh-web",
+      "name": "Mesh2Mesh admin console",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OIDC_CLIENT_SECRET:mesh2mesh-dev-secret}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "${WEB_PUBLIC_URL:http://localhost:8080}",
+      "redirectUris": [
+        "${WEB_PUBLIC_URL:http://localhost:8080}/auth/callback",
+        "http://localhost:5173/auth/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${WEB_PUBLIC_URL:http://localhost:8080}/##http://localhost:5173/"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "demo",
+      "email": "demo@mesh2mesh.local",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "verifyEmail": false,
+  "duplicateEmailsAllowed": false
+}

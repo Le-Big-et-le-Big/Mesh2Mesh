@@ -66,3 +66,29 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, status int, msg st
 	}
 	writeJSON(w, status, map[string]string{"error": msg})
 }
+
+// TrustProxies takes the client address from X-Forwarded-For for requests from proxies.
+func TrustProxies(next http.Handler, proxies []netip.Prefix) http.Handler {
+	if len(proxies) == 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if from, err := remoteAddr(r); err == nil && trusted(from, proxies) {
+			hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			if client, err := netip.ParseAddr(strings.TrimSpace(hops[len(hops)-1])); err == nil {
+				r = r.Clone(r.Context())
+				r.RemoteAddr = netip.AddrPortFrom(client.Unmap(), 0).String()
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func trusted(addr netip.Addr, proxies []netip.Prefix) bool {
+	for _, p := range proxies {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
